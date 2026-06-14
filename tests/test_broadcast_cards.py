@@ -27,6 +27,21 @@ def action_buttons(card_message):
 
 
 class BroadcastCardTest(unittest.TestCase):
+    def test_kill_broadcast_shows_killboard_link(self):
+        event = {
+            "EventId": "67890",
+            "Killer": {"Name": "killer", "GuildName": "ours"},
+            "Victim": {"Name": "victim", "GuildName": "enemy", "AverageItemPower": 1200},
+            "TotalVictimKillFame": 150000,
+            "TimeStamp": "2026-06-14T10:00:00",
+        }
+
+        card = list(kill_card(event, is_kill=True, highlight=False))
+
+        buttons = action_buttons(card)
+        self.assertEqual(len(buttons), 1)
+        self.assertEqual(buttons[0]["value"], KILLBOARD_URL.format(eid="67890"))
+
     def test_death_broadcast_shows_loss_split_and_killboard_link(self):
         event = {
             "EventId": "12345",

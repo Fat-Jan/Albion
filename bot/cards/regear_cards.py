@@ -23,7 +23,34 @@ def _silver(n) -> str:
         return "?"
 
 
-def death_select_card(player_name: str, deaths: list, max_n: int = 5) -> CardMessage:
+def _estimate_for_event(estimates: dict | None, event_id) -> int | None:
+    if not estimates:
+        return None
+    for key in (event_id, str(event_id)):
+        if key in estimates:
+            raw = estimates[key]
+            if isinstance(raw, dict):
+                raw = raw.get("total")
+            try:
+                return int(raw)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _mainhand_line(event: dict) -> str:
+    mainhand = (((event.get("Victim") or {}).get("Equipment") or {}).get("MainHand") or {})
+    type_ = mainhand.get("Type")
+    if not type_:
+        return "装备：主手 `无`"
+    tier = items.tier_enchant(type_) or "?"
+    name = items.localized(type_)
+    return f"装备：主手 `{tier}` {name}" if name else f"装备：主手 `{tier}`"
+
+
+def death_select_card(
+    player_name: str, deaths: list, max_n: int = 5, estimates: dict | None = None
+) -> CardMessage:
     """列玩家最近死亡，[详情] 看装备明细、[选这个] 发起补装申请。"""
     card = Card(Module.Header(f"{player_name} 最近死亡（详情 / 申请补装）"))
     for ev in deaths[:max_n]:
@@ -36,7 +63,16 @@ def death_select_card(player_name: str, deaths: list, max_n: int = 5) -> CardMes
         killer = (ev.get("Killer") or {}).get("Name", "?")
         scale = scale_label(ev)
         scale_txt = f"　{scale}" if scale else ""
-        text = f"{when}　IP `{ip:.0f}`{scale_txt}\n被 `{killer}` 击杀"
+        extra_lines = []
+        estimate = _estimate_for_event(estimates, eid)
+        if estimate is not None:
+            extra_lines.append(f"装备估价 ≈ `{_silver(estimate)}` 银")
+        extra_lines.append(_mainhand_line(ev))
+        text = (
+            f"{when}　IP `{ip:.0f}`{scale_txt}\n"
+            f"被 `{killer}` 击杀\n"
+            + "\n".join(extra_lines)
+        )
         detail_val = json.dumps({"act": "regear_detail", "eid": str(eid)})
         pick_val = json.dumps({"act": "regear_pick", "eid": str(eid)})
         card.append(

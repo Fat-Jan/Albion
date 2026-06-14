@@ -8,7 +8,14 @@ SETTING_FIELDS = {
     "member_role_id",
     "approval_channel_id",
     "regear_channel_id",
+    "regear_apply_channel_id",
+    "regear_review_channel_id",
+    "regear_payout_channel_id",
+    "regear_notify_channel_id",
     "broadcast_channel_id",
+    "kill_broadcast_channel_id",
+    "death_broadcast_channel_id",
+    "member_change_channel_id",
     "regear_reviewer_role_ids",
     "trusted_role_ids",
     "kill_fame_threshold",
@@ -298,6 +305,25 @@ def list_regear(
             LIMIT ?
             """,
             (*params, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def list_user_regear(kook_guild_id: str, kook_user_id: str, limit: int = 5) -> list[dict]:
+    """List one member's recent regear requests for /补装状态."""
+    limit = max(1, min(int(limit or 5), 20))
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            """
+            SELECT * FROM regear_request
+            WHERE kook_guild_id=? AND kook_user_id=?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (kook_guild_id, kook_user_id, limit),
         ).fetchall()
         return [dict(r) for r in rows]
     finally:

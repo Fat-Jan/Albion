@@ -25,6 +25,7 @@
 - 只在北京时间 `14:30` 到次日 `05:00` 之间轮询。
 - 轮询间隔为 15 分钟。
 - 只推送 AlbionBB 聚合结果中包含当前绑定公会的战役。
+- 只推送官方战役详情中本会参战人数至少 `20` 人的战役。
 - 同一 KOOK 服务器的同一战役只推一次，重启后仍不重复。
 - AlbionBB 或 KOOK 发送失败只记录 warning，不影响死亡播报、退会复查和价格参考刷新。
 
@@ -33,7 +34,7 @@
 主源使用 AlbionBB：
 
 ```text
-GET https://api.albionbb.com/asia/battles?minPlayers=<阈值>&page=1
+GET https://api.albionbb.com/asia/battles?minPlayers=<整场人数预筛>&page=1
 ```
 
 返回字段已实测可用：
@@ -46,7 +47,13 @@ GET https://api.albionbb.com/asia/battles?minPlayers=<阈值>&page=1
 - `guilds[]`：`name`、`alliance`、`killFame`
 - `alliances[]`：`name`、`killFame`
 
-AlbionBB 可服务端直连，比官方 `/battles?guildId=` 更适合第一版自动聚合。官方 GameInfo 保留为后续补充详情来源，例如需要完整击杀事件、装备和出勤时再查：
+AlbionBB 可服务端直连，比官方 `/battles?guildId=` 更适合第一版自动聚合候选和战报摘要。AlbionBB 的 `minPlayers` 是整场总参战人数，不是本会人数；第一版最终推送前必须再查官方战役详情，按 `players` 里的公会字段统计本会参战人数：
+
+```text
+GET https://gameinfo-sgp.albiononline.com/api/gameinfo/battles/{battle_id}
+```
+
+如果后续需要完整击杀事件、装备和出勤，再查：
 
 ```text
 GET https://gameinfo-sgp.albiononline.com/api/gameinfo/events/battle/{battle_id}
@@ -57,16 +64,16 @@ GET https://gameinfo-sgp.albiononline.com/api/gameinfo/events/battle/{battle_id}
 在 `guild_binding` 增加两个设置：
 
 - `battle_report_channel_id TEXT`
-- `battle_report_min_players INTEGER DEFAULT 50`
+- `battle_report_min_guild_players INTEGER DEFAULT 20`
 
 新增管理命令：
 
 ```text
 /设置 战报频道 #频道
-/设置 战报最小人数 50
+/设置 战报本会最小人数 20
 ```
 
-默认最小人数为 `50`。频道未设置时任务直接跳过，不请求外部接口。
+默认本会最小参战人数为 `20`。频道未设置时任务直接跳过，不请求外部接口。
 
 ## 去重表
 
@@ -104,7 +111,9 @@ CREATE TABLE IF NOT EXISTS battle_report_seen (
 - 15 分钟触发一次
 - 北京时间不在 `14:30` 到次日 `05:00` 时直接返回
 - 遍历已配置 `battle_report_channel_id` 的公会绑定
-- 拉取 AlbionBB、过滤本会、查 seen、发送、写入 seen
+- 拉取 AlbionBB、过滤本会、查 seen
+- 对候选战役查官方 `/battles/{id}`，统计本会参战人数
+- 本会参战人数达到阈值后发送并写入 seen
 
 `bot/store/db.py` 和 `bot/store/repo.py`
 
@@ -115,7 +124,7 @@ CREATE TABLE IF NOT EXISTS battle_report_seen (
 `bot/commands/admin.py`
 
 - 新增 `/设置 战报频道`
-- 新增 `/设置 战报最小人数`
+- 新增 `/设置 战报本会最小人数`
 - 更新设置帮助文案
 
 ## 时间窗
@@ -147,9 +156,11 @@ Mika 参与大型战役
 - 总人数
 - 总击杀
 - 总声望
+- 本会参战人数
 - 本会 killFame
-- Top 3 公会：名称、联盟、killFame
-- Top 3 联盟：名称、killFame
+- 高参与公会：名称、联盟、参战人数、击杀/阵亡、killFame
+- 高参与联盟：名称、参战人数、击杀/阵亡、killFame
+- 本会玩家高光：击杀最多、击杀声望最高、阵亡最多、阵亡声望最高
 
 按钮：
 
@@ -170,8 +181,9 @@ AlbionBB 链接格式已用 live probe 确认：`https://east.albionbb.com/battl
 - 时间窗：`14:29` 不轮询，`14:30` 轮询，`23:59` 轮询，`04:59` 轮询，`05:00` 不轮询。
 - 配置：未配置战报频道时不请求 AlbionBB。
 - 过滤：只保留 `guilds[].name` 命中绑定公会名的战役。
+- 本会人数：官方详情统计本会 `19` 人不推送，`20` 人推送。
 - 去重：seen 表命中时不重复发送；发送成功后写 seen；发送失败不写 seen。
-- 卡片：包含开始时间、总人数、击杀数、总声望、本会 killFame。
+- 卡片：包含开始时间、总人数、击杀数、总声望、本会参战人数、本会 killFame。
 - 异常：AlbionBB 抛错不影响任务函数返回。
 
 ## 实施顺序

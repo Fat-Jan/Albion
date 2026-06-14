@@ -1,6 +1,6 @@
 """SQLite 存储：绑定关系 + 审批 + 补装。数据量小，用 stdlib sqlite3 同步即可。
 
-列在计划第六节基础上补了 M2+ 设置项所需字段（播报频道/可信身份组/大额阈值）。
+列在计划第六节基础上补了 M2+ 设置项所需字段（播报频道/击杀播报频道/阵亡播报频道/成员变动频道/可信身份组/大额阈值）。
 """
 import os
 import sqlite3
@@ -17,7 +17,14 @@ CREATE TABLE IF NOT EXISTS guild_binding (
   member_role_id       TEXT,
   approval_channel_id  TEXT,
   regear_channel_id    TEXT,
+  regear_apply_channel_id TEXT,
+  regear_review_channel_id TEXT,
+  regear_payout_channel_id TEXT,
+  regear_notify_channel_id TEXT,
   broadcast_channel_id TEXT,
+  kill_broadcast_channel_id TEXT,
+  death_broadcast_channel_id TEXT,
+  member_change_channel_id TEXT,
   regear_reviewer_role_ids TEXT,             -- 逗号分隔：可审批/发放补装的身份组
   trusted_role_ids     TEXT,                 -- 角色预检：逗号分隔的可信身份组
   kill_fame_threshold  INTEGER DEFAULT 100000,-- 死亡播报大额高亮门槛
@@ -131,6 +138,20 @@ def _ensure_guild_binding_columns(conn: sqlite3.Connection) -> None:
     }
     if "regear_channel_id" not in cols:
         conn.execute("ALTER TABLE guild_binding ADD COLUMN regear_channel_id TEXT")
+    if "regear_apply_channel_id" not in cols:
+        conn.execute("ALTER TABLE guild_binding ADD COLUMN regear_apply_channel_id TEXT")
+    if "regear_review_channel_id" not in cols:
+        conn.execute("ALTER TABLE guild_binding ADD COLUMN regear_review_channel_id TEXT")
+    if "regear_payout_channel_id" not in cols:
+        conn.execute("ALTER TABLE guild_binding ADD COLUMN regear_payout_channel_id TEXT")
+    if "regear_notify_channel_id" not in cols:
+        conn.execute("ALTER TABLE guild_binding ADD COLUMN regear_notify_channel_id TEXT")
+    if "kill_broadcast_channel_id" not in cols:
+        conn.execute("ALTER TABLE guild_binding ADD COLUMN kill_broadcast_channel_id TEXT")
+    if "death_broadcast_channel_id" not in cols:
+        conn.execute("ALTER TABLE guild_binding ADD COLUMN death_broadcast_channel_id TEXT")
+    if "member_change_channel_id" not in cols:
+        conn.execute("ALTER TABLE guild_binding ADD COLUMN member_change_channel_id TEXT")
     if "regear_reviewer_role_ids" not in cols:
         conn.execute("ALTER TABLE guild_binding ADD COLUMN regear_reviewer_role_ids TEXT")
 

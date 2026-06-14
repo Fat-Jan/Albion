@@ -2,6 +2,7 @@
 
 > 配套文档：`阿尔比恩数据接口文档.md`（数据源、端点、字段、估值逻辑都在那）
 > 本计划假设：旧的 React 前端 + Node backend 已归档不再维护 → 新项目走**单一 Python 自包含**，不依赖旧 backend。
+> 当前项目版本：`1.0`，代码单一来源为 `bot/version.py`。
 
 ---
 
@@ -27,6 +28,7 @@
 | 连接模式 | **WebSocket** | 机器人主动外连，**无需公网域名、无需 ICP 备案、不限服务器位置**（本地/海外 VPS 均可） |
 | HTTP 客户端 | httpx | 异步，配合 khl.py |
 | 存储 | SQLite | 绑定关系数据量小，零运维 |
+| 版本号 | `bot/version.py` | 单一版本来源，`/ping` 返回当前版本 |
 | 鉴权 | KOOK Bot Token（env 注入，不入库不进 git） | — |
 
 > KOOK 没有原生斜杠指令注册，靠监听 `message` 事件解析 `/` 前缀（khl.py 的 `@bot.command` 已封装）。交互按钮用卡片 `click=return-val`，点击回推 button-click 事件，无需额外回调地址。
@@ -57,9 +59,9 @@ KOOK ←─WebSocket─→ [机器人进程 (Python/khl.py)]
 | `gameinfo.search(q)` | `/search?q=` | 公会名/角色名 → 拿 base64 ID |
 | `gameinfo.player(id)` | `/players/{id}` (+`/kills` `/deaths`) | 玩家档案、终身声望、最近死亡 |
 | `gameinfo.guild(id)` | `/guilds/{id}` (+`/members`) | 公会信息、成员（退会复查用） |
-| `gameinfo.events(guildId)` | `/events?guildId=` | 死亡播报 + 出勤快照 |
-| `gameinfo.fame()` | `/events/playerfame`·`/players/statistics` | 声望榜（PvP/PvE） |
-| `gameinfo.battles(guildId)` | `/battles?guildId=` (+`/events/battle/{id}`) | 出勤统计（参战者聚合） |
+| `gameinfo.events(guild_id=None)` | `/events`、`/events?guildId=` | 死亡播报。实测 guild feed 只含本会击杀，阵亡播报走全局 `/events` 多页 + 双向筛 |
+| `gameinfo.player_fame()` / `player_statistics()` | `/events/playerfame`、`/players/statistics` | 声望榜（PvP/PvE） |
+| `gameinfo.battles(guildId)` / `battle()` / `battle_events()` | `/battles?guildId=`、`/battles/{id}`、`/events/battle/{id}` | 战役查询、战报聚合、后续出勤统计 |
 | `market.prices(types, q)` | AODP `/api/v2/stats/prices/{items}.json` | 物价即时查询（`/物价`） |
 | `market.history(types)` | AODP `/api/v2/stats/history/{items}.json?time-scale=24` | 估值口径：近 N 天各城 avg_price |
 | `market.gold()` | AODP `/api/v2/stats/gold.json` | 金价 |
@@ -105,45 +107,84 @@ KOOK ←─WebSocket─→ [机器人进程 (Python/khl.py)]
 ```sql
 -- 公会绑定（一个 KOOK 服务器绑一个公会）
 guild_binding(
-  kook_guild_id     TEXT PRIMARY KEY,
-  albion_guild_id   TEXT NOT NULL,
-  albion_guild_name TEXT NOT NULL,
-  member_role_id    TEXT,          -- 绑成功后发的身份组
-  approval_channel_id TEXT,        -- 审批卡片发到哪
-  created_by, created_at
+  kook_guild_id              TEXT PRIMARY KEY,
+  albion_guild_id            TEXT NOT NULL,
+  albion_guild_name          TEXT NOT NULL,
+  member_role_id             TEXT,
+  approval_channel_id        TEXT,
+  regear_channel_id          TEXT, -- 旧单频道兼容兜底
+  regear_apply_channel_id    TEXT,
+  regear_review_channel_id   TEXT,
+  regear_payout_channel_id   TEXT,
+  regear_notify_channel_id   TEXT,
+  broadcast_channel_id       TEXT,
+  kill_broadcast_channel_id  TEXT,
+  death_broadcast_channel_id TEXT,
+  member_change_channel_id   TEXT,
+  regear_reviewer_role_ids   TEXT, -- 逗号分隔，补装审核/发放身份组
+  trusted_role_ids           TEXT, -- 逗号分隔，绑定快速通道身份组
+  kill_fame_threshold        INTEGER DEFAULT 100000,
+  created_by                 TEXT,
+  created_at                 TEXT DEFAULT (datetime('now'))
 )
 
--- 玩家绑定
 player_binding(
-  kook_user_id      TEXT,
-  kook_guild_id     TEXT,
-  albion_player_id  TEXT NOT NULL,
+  kook_user_id       TEXT NOT NULL,
+  kook_guild_id      TEXT NOT NULL,
+  albion_player_id   TEXT NOT NULL,
   albion_player_name TEXT NOT NULL,
-  status            TEXT,          -- verified
-  bound_at,
+  status             TEXT DEFAULT 'verified',
+  bound_at           TEXT DEFAULT (datetime('now')),
   PRIMARY KEY (kook_user_id, kook_guild_id)
 )
 
--- 待审批
 pending_approval(
-  id INTEGER PRIMARY KEY,
-  kook_guild_id, kook_user_id,
-  albion_player_id, albion_player_name,
-  message_id        TEXT,          -- 审批卡片消息 ID
-  status            TEXT,          -- pending/approved/rejected
-  created_at
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  kook_guild_id      TEXT NOT NULL,
+  kook_user_id       TEXT NOT NULL,
+  albion_player_id   TEXT NOT NULL,
+  albion_player_name TEXT NOT NULL,
+  message_id         TEXT,
+  status             TEXT DEFAULT 'pending',
+  created_at         TEXT DEFAULT (datetime('now'))
 )
 
--- 补装申请
 regear_request(
-  id INTEGER PRIMARY KEY,
-  kook_guild_id, kook_user_id,
-  albion_player_id,
-  event_id          TEXT,          -- 关联的死亡事件
-  est_value         INTEGER,       -- /估值 算出的银币
-  message_id        TEXT,          -- 申请卡片消息 ID
-  status            TEXT,          -- pending/approved/rejected/paid
-  created_at, reviewed_by, reviewed_at
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  kook_guild_id    TEXT NOT NULL,
+  kook_user_id     TEXT NOT NULL,
+  albion_player_id TEXT,
+  event_id         TEXT,
+  est_value        INTEGER,
+  message_id       TEXT,
+  status           TEXT DEFAULT 'pending', -- pending/approved/rejected/paid
+  created_at       TEXT DEFAULT (datetime('now')),
+  reviewed_by      TEXT,
+  reviewed_at      TEXT,
+  paid_by          TEXT,
+  paid_at          TEXT
+)
+
+regear_reviewer_request(
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  kook_guild_id TEXT NOT NULL,
+  kook_user_id  TEXT NOT NULL,
+  message_id    TEXT,
+  status        TEXT DEFAULT 'pending',
+  created_at    TEXT DEFAULT (datetime('now')),
+  reviewed_by   TEXT,
+  reviewed_at   TEXT
+)
+
+market_price_reference(
+  item_id      TEXT NOT NULL,
+  quality      INTEGER NOT NULL,
+  slot_group   TEXT NOT NULL,
+  low_price    INTEGER NOT NULL,
+  sample_count INTEGER DEFAULT 0,
+  source       TEXT DEFAULT 'aodp_prices_sell_min',
+  updated_at   TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (item_id, quality)
 )
 ```
 
@@ -155,29 +196,44 @@ regear_request(
 - `/绑定公会 <公会名>` → search 列候选 → 按钮选中 → 落库
 - `/设置 会员身份组 @身份组`
 - `/设置 审批频道 #频道`
+- `/设置 补装初始化频道` → 新建补装中心四频道并写入配置
+- `/设置 补装申请频道|补装审核频道|补装发放频道|补装通知频道 #频道`
+- `/设置 补装频道 #频道` → 旧单频道兼容兜底
+- `/设置 补装审核身份组 @身份组[ @身份组...]`
+- `/设置 播报频道 #频道` → 统一播报兜底
+- `/设置 击杀播报频道 #频道`
+- `/设置 阵亡播报频道 #频道`（兼容 `/设置 死亡播报频道 #频道`）
+- `/设置 成员变动频道 #频道`
 - `/设置 大额阈值 <fame>`  → 死亡播报高亮门槛，默认 100k fame，可调
 - `/解绑公会`
 
 **玩家**
 - `/绑定 <角色名>` → 走第五节审批流
 - `/解绑`
+- `/补装` → 选最近死亡 → 看详情或提交补装申请
+- `/补装状态` → 查看本人最近补装进度
+- `/补装审核` → 申请补装审核身份组
 
 **查询**（已绑定用户免输名字）
 - `/战绩 [角色名]` → 玩家档案 + KD + 最近击杀/死亡
 - `/估值` → 最近一次死亡的装备+背包估值（AODP）
-- `/战役` → 公会最近 ZvZ 战报（albionbb/asia 或官方 `/battles?guildId=`）
+- `/战役` → 公会最近 ZvZ 战役（官方 `/battles?guildId=`）
 - `/物价 <物品>` → AODP 现价
 - `/金价` → AODP `gold.json`，近 24h 价格与波动
 - `/榜单 [pvp|pve]` → 声望榜：PvP `/events/playerfame`、PvE `/players/statistics?type=PvE`
-- `/补装` → 选最近死亡 → 复用 `/估值` → 发申请卡片到管理频道 → 管理员 [通过]/[拒绝] → 记账（落 regear_request）
+- `/战报` → AI 基于最近战役生成短摘要
+- `/助手 <问题>` → 命令引导 + 白名单只读查询
+- `/补装解释 <申请号>` → AI 解释补装金额和异常点，不参与审批
+- `/补装 待处理|待发放|列表` → 管理员或补装审核员查看队列
 - `/出勤` → 最近 N 场 `/battles?guildId=` 聚合参战者，出成员出勤快照（趋势版需采集器，归二期）
 
 **自动（一期，与查询同期落地）**
-- 死亡播报：定时轮询 `/events?guildId=` → 推卡片到播报频道
+- 死亡播报：定时轮询全局 `/events` 多页，按 killer/victim 双向筛出本会击杀/阵亡，分别推到对应播报频道，未单独配置则推到统一播报兜底频道
   - 区分**我方击杀 / 我方阵亡**；`TotalVictimKillFame` 超阈值的**大额击杀单独高亮**推送
   - 注意 KOOK 每日发消息上限 1 万，控频 + 去重
-- 退会复查：每日比对 `/guilds/{id}/members` → 退会自动撤销身份组
-- 两者共用同一套 asyncio 定时轮询骨架（同一循环 + 容错退避），合做省一套调度
+- 退会复查：每日比对 `/guilds/{id}/members` → 退会自动撤销身份组，并通知成员变动频道
+- 价格参考库刷新：每 3 天刷新 T4-T8 主手/双手/副手低价参考
+- 战报自动推送：聚合模块和卡片已实现；定时推送、配置列、去重表仍按设计文档后续接入
 
 ---
 
@@ -188,17 +244,21 @@ albion-kook-bot/
 ├── bot/
 │   ├── main.py              # khl.py Bot 启动 + WS 连接
 │   ├── config.py            # env: KOOK_TOKEN 等
+│   ├── version.py           # 项目版本号，当前 1.0
+│   ├── ai/                  # LongCat/OpenAI 兼容 AI 辅助，只读路由和安全输出层
 │   ├── commands/
 │   │   ├── admin.py         # 绑定公会 / 设置
+│   │   ├── ai.py            # /助手 /战报 /补装解释
 │   │   ├── register.py      # 玩家绑定 + 审批（含 KOOK 角色预检分级）
-│   │   ├── query.py         # 战绩 / 估值 / 战役 / 物价 / 金价 / 榜单 / 出勤
+│   │   ├── query.py         # 战绩 / 估值 / 战役 / 物价 / 金价 / 榜单
 │   │   └── regear.py        # 补装申请 + 审批记账
-│   ├── cards/               # 卡片构建（选公会、审批、战绩、估值、补装、播报）
+│   ├── cards/               # 卡片构建（选公会、审批、战绩、估值、补装、播报、战报）
 │   ├── tasks/               # 定时轮询：死亡播报 + 退会复查（共用调度骨架）
 │   ├── albion/
 │   │   ├── client.py        # httpx + 缓存 + 限流 + 退避
 │   │   ├── gameinfo.py      # search/players/guilds/events/battles/fame
 │   │   ├── market.py        # AODP prices + gold
+│   │   ├── battle_report.py # ZvZ 战报聚合（自动推送尚未接入）
 │   │   ├── valuation.py     # 装备+背包估值
 │   │   └── items.py         # ao-bin-dumps 物品名→中文
 │   └── store/db.py          # SQLite
@@ -215,13 +275,16 @@ albion-kook-bot/
 
 | 阶段 | 内容 | 验证 |
 |---|---|---|
-| **M0 脚手架** | khl.py 连上 KOOK WS，`/ping` 回 `pong` | 频道发 `/ping` 收到回复 |
+| **M0 脚手架** | khl.py 连上 KOOK WS，`/ping` 回 `pong v1.0` | 频道发 `/ping` 收到带版本回复 |
 | **M1 数据层** | `albion/client+gameinfo+market+valuation` | 对真实角色名跑通：返回档案、估值为非负数 |
 | **M2 公会绑定** | `/绑定公会` 权限校验 + search + 按钮选中 + 落库 | 非管理员被拒；管理员绑成功且 DB 有记录 |
 | **M3 玩家绑定+审批** | `/绑定` → 审批卡片 → 按钮通过 → 发组+改名 | 不在公会的角色被拒；在公会的走审批后拿到身份组 |
 | **M4 查询指令** | `/战绩 /估值 /战役 /物价 /金价 /榜单` | 已绑定用户免输名字直接出结果 |
 | **M5 补装** | `/补装` → 选死亡 → 复用估值 → 申请卡片 → 批准记账 | 申请走审批后 regear_request 落 approved |
 | **M6 自动任务** | 死亡播报（分击杀/阵亡+大额高亮）+ 退会复查 | 公会有死亡时频道收到卡片；大额单独高亮；退会成员身份组被撤 |
+| **AI 辅助** | `/助手`、`/战报`、`/补装解释`，只读事实包 + 输出安全层 | LongCat 探针通过；只读边界和危险声明拦截有单测 |
+| **版本号控制** | `bot/version.py` 统一版本，`/ping` 带版本 | `tests/test_version.py` 通过 |
+| **战报聚合/卡片** | 生成 ZvZ 聚合报告和 KOOK 卡片 | `tests/test_battle_report.py` 通过；自动推送仍后续接入 |
 | **M7 出勤（快照）** | `/出勤` 最近 N 场参战者聚合 | 出成员出勤次数快照（趋势版+采集器归二期） |
 
 ---
@@ -234,6 +297,7 @@ albion-kook-bot/
 4. **KOOK 每日发消息上限 1 万** —— 死亡播报要控频 + 去重，避免刷爆配额。
 5. **Token 安全** —— 走 env，不入库不进 git；`.env` 加 `.gitignore`。
 6. **区服别混** —— 战斗 sgp / 市场 east / ZvZ asia，三者都得是亚服。
+7. **AI 边界** —— AI 只做说明和只读查询，不允许批准绑定、批准补装、改金额、发组、撤组或标记发放。
 
 ---
 
@@ -248,6 +312,10 @@ albion-kook-bot/
 - **物品中文名** → 一期接 ao-bin-dumps（唯一权威源，`LocalizedNames["ZH-CN"]`），预处理成本地 dict 随包，不运行时拉 GitHub；无更好的独立中文源。
 - **估值口径** → 默认取**红城近 7 天 `avg_price`**（走 `/history` time-scale=24），红城稀疏回退**多城近 7 天 avg_price 中位**，统一过滤 0 与离群（>中位 3 倍剔除）；`/prices` 现价仅用于 `/物价` 即时查询。
 - **大额阈值** → 不硬编码，做成 `/设置 大额阈值 <fame>`，默认 100k fame，管理员按公会战力自调。
+- **补装频道** → 新流程使用申请、审核、发放、通知四频道；旧 `regear_channel_id` 只做兼容兜底。
+- **AI 辅助** → LongCat/OpenAI 兼容接口默认关闭，启用后只走 `/助手`、`/战报`、`/补装解释`，输入为结构化事实包，输出层做危险动作声明拦截和密钥脱敏。
+- **版本号控制** → 当前版本 `1.0`，代码单一来源 `bot/version.py`；`/ping` 用同一版本源。
+- **战报推送** → 已完成战报聚合和卡片模块；自动战报推送需要再加配置列、去重表、管理员设置和 `auto.py` 定时任务，按 `docs/superpowers/specs/2026-06-14-battle-report-design.md` 执行。
 
 待定：
 - （暂无，上述已收口）

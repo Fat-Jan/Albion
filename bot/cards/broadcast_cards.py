@@ -54,7 +54,7 @@ def kill_card(
         theme=theme,
     )
     eid = event.get("EventId")
-    if not is_kill and eid:
+    if eid:
         card.append(
             Module.ActionGroup(
                 Element.Button(

@@ -26,6 +26,35 @@ DB_PATH = os.getenv("DB_PATH", "data/bot.db")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
 
+def _bool_env(key: str, default: bool = False) -> bool:
+    val = os.getenv(key)
+    if val is None:
+        return default
+    return val.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _float_env(key: str, default: float) -> float:
+    try:
+        return float(os.getenv(key, str(default)))
+    except ValueError:
+        return default
+
+
+def _int_env(key: str, default: int) -> int:
+    try:
+        return int(os.getenv(key, str(default)))
+    except ValueError:
+        return default
+
+
+AI_ENABLED = _bool_env("AI_ENABLED", False)
+AI_BASE_URL = os.getenv("AI_BASE_URL", "https://api.longcat.chat/openai").rstrip("/")
+AI_API_KEY = (os.getenv("AI_API_KEY") or os.getenv("LONGCAT_API_KEY") or "").strip()
+AI_MODEL = os.getenv("AI_MODEL", "LongCat-2.0-Preview").strip()
+AI_TIMEOUT_SEC = _float_env("AI_TIMEOUT_SEC", 20.0)
+AI_MAX_OUTPUT_TOKENS = _int_env("AI_MAX_OUTPUT_TOKENS", 800)
+
+
 def require_token() -> str:
     """启动 bot 前调用，确保 Token 存在。"""
     if not KOOK_TOKEN:

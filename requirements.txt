@@ -1,3 +1,4 @@
 khl.py
 httpx
 python-dotenv
+pytest

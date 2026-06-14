@@ -15,6 +15,23 @@ log = logging.getLogger(__name__)
 
 _ROLE_ALL_RE = re.compile(r"\(rol\)(\d+)\(rol\)")
 
+REGEAR_CENTER_CATEGORY_NAME = "🛡️补装中心"
+REGEAR_CENTER_CHANNELS = {
+    "regear_apply_channel_id": "📥补装申请",
+    "regear_review_channel_id": "🔍补装审核",
+    "regear_payout_channel_id": "💰补装发放",
+    "regear_notify_channel_id": "📣补装通知",
+}
+REGEAR_SPLIT_CHANNEL_KEYS = {
+    "补装申请频道": "regear_apply_channel_id",
+    "补装审核频道": "regear_review_channel_id",
+    "补装发放频道": "regear_payout_channel_id",
+    "补装通知频道": "regear_notify_channel_id",
+}
+KOOK_PERM_VIEW_CHANNEL = 2048
+KOOK_PERM_SEND_MESSAGE = 4096
+KOOK_PERM_VIEW_SEND = KOOK_PERM_VIEW_CHANNEL | KOOK_PERM_SEND_MESSAGE
+
 
 async def _enrich_guild(gi: GameInfo, g: dict) -> dict:
     """补查公会详情，拿会长/联盟/人数，供卡片展示防误绑。"""
@@ -64,13 +81,133 @@ async def _resolve_channel(guild, value: str):
     return None
 
 
+def _csv_ids(raw: object) -> list[str]:
+    return [p.strip() for p in str(raw or "").split(",") if p.strip()]
+
+
+def _role_type_value(role) -> int:
+    role_type = getattr(role, "type", 0)
+    return int(getattr(role_type, "value", role_type) or 0)
+
+
+def _is_manager_role(role) -> bool:
+    permissions = int(getattr(role, "permissions", 0) or 0)
+    return any((permissions >> bit) & 1 for bit in perms.MANAGE_BITS)
+
+
+def _is_bot_role(role) -> bool:
+    return _role_type_value(role) == 1
+
+
+async def _create_or_update_role_permission(holder, role_id: str, *, allow: int = 0, deny: int = 0) -> None:
+    role_id = str(role_id)
+    try:
+        await holder.create_role_permission(role_id)
+    except Exception as exc:
+        log.debug("创建频道身份组权限覆盖失败/已存在 role=%s channel=%s: %s", role_id, getattr(holder, "id", "?"), exc)
+    await holder.update_role_permission(role_id, allow=allow, deny=deny)
+
+
+async def _apply_regear_center_permissions(bot: Bot, guild, channels: dict[str, object], binding: dict) -> list[str]:
+    warnings: list[str] = []
+    member_role_id = (binding or {}).get("member_role_id")
+    reviewer_role_ids = _csv_ids((binding or {}).get("regear_reviewer_role_ids"))
+    try:
+        roles = await guild.fetch_roles()
+    except Exception as exc:
+        log.warning("初始化补装中心时拉取身份组失败: %s", exc)
+        roles = []
+        warnings.append("未能读取身份组，私密频道权限可能需要手动检查。")
+
+    manager_role_ids = [str(r.id) for r in roles if _is_manager_role(r)]
+    bot_role_ids = await _guess_bot_role_ids(bot, roles)
+    staff_role_ids = sorted(set(reviewer_role_ids + manager_role_ids + bot_role_ids))
+
+    async def apply_perm(field: str, role_id: str, *, allow: int = 0, deny: int = 0) -> None:
+        try:
+            await _create_or_update_role_permission(channels[field], role_id, allow=allow, deny=deny)
+        except Exception as exc:
+            log.warning("写补装中心权限失败 channel=%s role=%s: %s", field, role_id, exc)
+            warnings.append(f"{REGEAR_CENTER_CHANNELS[field]} 权限写入失败：role {role_id}")
+
+    if member_role_id:
+        await apply_perm("regear_apply_channel_id", "0", deny=KOOK_PERM_VIEW_CHANNEL)
+        await apply_perm("regear_apply_channel_id", member_role_id, allow=KOOK_PERM_VIEW_SEND)
+        await apply_perm("regear_notify_channel_id", "0", deny=KOOK_PERM_VIEW_CHANNEL)
+        await apply_perm(
+            "regear_notify_channel_id",
+            member_role_id,
+            allow=KOOK_PERM_VIEW_CHANNEL,
+            deny=KOOK_PERM_SEND_MESSAGE,
+        )
+    else:
+        await apply_perm("regear_notify_channel_id", "0", deny=KOOK_PERM_SEND_MESSAGE)
+        warnings.append("未设置会员身份组，补装申请频道沿用默认可见性；建议先 `/设置 会员身份组 @身份组`。")
+
+    for role_id in staff_role_ids:
+        await apply_perm("regear_apply_channel_id", role_id, allow=KOOK_PERM_VIEW_SEND)
+
+    for field in ("regear_review_channel_id", "regear_payout_channel_id"):
+        await apply_perm(field, "0", deny=KOOK_PERM_VIEW_CHANNEL)
+        for role_id in staff_role_ids:
+            await apply_perm(field, role_id, allow=KOOK_PERM_VIEW_SEND)
+
+    for role_id in sorted(set(manager_role_ids + bot_role_ids)):
+        await apply_perm("regear_notify_channel_id", role_id, allow=KOOK_PERM_VIEW_SEND)
+
+    if not reviewer_role_ids:
+        warnings.append("未设置补装审核身份组，审核/发放频道目前只显式放行管理身份组和 bot。")
+    if not bot_role_ids:
+        warnings.append("未识别到 bot 身份组；若 bot 无法在私密频道发卡，请手动给 bot 身份组放行。")
+    return warnings
+
+
+async def _guess_bot_role_ids(bot: Bot, roles: list) -> list[str]:
+    bot_roles = [r for r in roles if _is_bot_role(r)]
+    if not bot_roles:
+        return []
+    try:
+        me = await bot.client.fetch_me()
+    except Exception as exc:
+        log.debug("拉取 bot 用户信息失败: %s", exc)
+        me = None
+    names = {getattr(me, "username", ""), getattr(me, "nickname", "")} if me else set()
+    names = {n for n in names if n}
+    exact = [r for r in bot_roles if getattr(r, "name", "") in names]
+    if exact:
+        return [str(r.id) for r in exact]
+    fuzzy = [
+        r
+        for r in bot_roles
+        if any(n and n in getattr(r, "name", "") for n in names)
+    ]
+    return [str(r.id) for r in (fuzzy or bot_roles)]
+
+
+async def _create_regear_center(bot: Bot, guild, binding: dict) -> tuple[object, dict[str, object], list[str]]:
+    category = await guild.create_channel_category(REGEAR_CENTER_CATEGORY_NAME)
+    channels = {}
+    for field, name in REGEAR_CENTER_CHANNELS.items():
+        channels[field] = await guild.create_text_channel(name, category)
+    warnings = await _apply_regear_center_permissions(bot, guild, channels, binding)
+    return category, channels, warnings
+
+
 SETTING_USAGE = (
     "用法：\n"
     "`/设置 会员身份组 @身份组`\n"
     "`/设置 审批频道 #频道`\n"
+    "`/设置 补装初始化频道`\n"
+    "`/设置 补装申请频道 #频道`\n"
+    "`/设置 补装审核频道 #频道`\n"
+    "`/设置 补装发放频道 #频道`\n"
+    "`/设置 补装通知频道 #频道`\n"
     "`/设置 补装频道 #频道`\n"
     "`/设置 补装审核身份组 @身份组[ @身份组...]`\n"
     "`/设置 播报频道 #频道`\n"
+    "`/设置 击杀播报频道 #频道`\n"
+    "`/设置 阵亡播报频道 #频道`\n"
+    "`/设置 成员变动频道 #频道`\n"
     "`/设置 可信身份组 @身份组[ @身份组...]`\n"
     "`/设置 大额阈值 <fame数字>`"
 )
@@ -147,6 +284,59 @@ def register(bot: Bot, gi: GameInfo) -> None:
                 return
             repo.set_setting(kgid, "broadcast_channel_id", cid)
             await msg.reply(f"✅ 播报频道已设为 (chn){cid}(chn)")
+
+        elif key == "击杀播报频道":
+            cid = await _resolve_channel(msg.ctx.guild, value)
+            if not cid:
+                await msg.reply(f"找不到频道「{value}」。可 #频道、给 ID，或确认名字完全一致。")
+                return
+            repo.set_setting(kgid, "kill_broadcast_channel_id", cid)
+            await msg.reply(f"✅ 击杀播报频道已设为 (chn){cid}(chn)")
+
+        elif key in ("阵亡播报频道", "死亡播报频道"):
+            cid = await _resolve_channel(msg.ctx.guild, value)
+            if not cid:
+                await msg.reply(f"找不到频道「{value}」。可 #频道、给 ID，或确认名字完全一致。")
+                return
+            repo.set_setting(kgid, "death_broadcast_channel_id", cid)
+            await msg.reply(f"✅ 阵亡播报频道已设为 (chn){cid}(chn)")
+
+        elif key == "成员变动频道":
+            cid = await _resolve_channel(msg.ctx.guild, value)
+            if not cid:
+                await msg.reply(f"找不到频道「{value}」。可 #频道、给 ID，或确认名字完全一致。")
+                return
+            repo.set_setting(kgid, "member_change_channel_id", cid)
+            await msg.reply(f"✅ 成员变动频道已设为 (chn){cid}(chn)")
+
+        elif key == "补装初始化频道":
+            binding = repo.get_guild_binding(kgid) or {}
+            try:
+                category, channels, warnings = await _create_regear_center(bot, msg.ctx.guild, binding)
+            except Exception as exc:
+                log.warning("初始化补装中心失败: %s", exc)
+                await msg.reply("⚠️ 创建补装中心失败，请检查 bot 是否有管理频道/管理权限。")
+                return
+            for field, channel in channels.items():
+                repo.set_setting(kgid, field, str(channel.id))
+            lines = [
+                f"✅ 已新建 `{REGEAR_CENTER_CATEGORY_NAME}`，并写入补装频道配置。",
+                f"· 分组：`{getattr(category, 'id', '-')}`",
+            ]
+            for field, name in REGEAR_CENTER_CHANNELS.items():
+                lines.append(f"· {name}：(chn){channels[field].id}(chn)")
+            if warnings:
+                lines.append("⚠️ " + "；".join(dict.fromkeys(warnings)))
+            await msg.reply("\n".join(lines))
+
+        elif key in REGEAR_SPLIT_CHANNEL_KEYS:
+            cid = await _resolve_channel(msg.ctx.guild, value)
+            if not cid:
+                await msg.reply(f"找不到频道「{value}」。可 #频道、给 ID，或确认名字完全一致。")
+                return
+            field = REGEAR_SPLIT_CHANNEL_KEYS[key]
+            repo.set_setting(kgid, field, cid)
+            await msg.reply(f"✅ {key}已设为 (chn){cid}(chn)")
 
         elif key == "补装频道":
             cid = await _resolve_channel(msg.ctx.guild, value)
