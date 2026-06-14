@@ -1,0 +1,84 @@
+# Notepad — 阿尔比恩公会 KOOK 机器人
+
+> 项目本地续接记录。会话启动读 `## Priority Context`。
+
+## Priority Context
+
+- 项目是面向单个亚服公会的 KOOK 机器人，两条主线：管理员绑公会 + 玩家自助绑角色（名字匹配+审批），绑定后查询免输名字。
+- 当前进度：**M0-M6 已实现并线上运行**，数据/逻辑对真实 API 验过；补装、播报、查询已在真实 bot 进程中跑。下一步 M7 出勤 + KOOK 端活测收口。
+- 测试用 KOOK 服务器可换（当前 id `4676167053713576`，bot 身份 Jianguomao#7691）；绑定一律按运行时 guild_id 走，代码不写死服务器。
+- 测试参考角色：armskey/muaowo（都不在 Mika）；需要 Mika 成员就从 `/guilds/{id}/members` 挑活跃的。
+- 实际运行环境是 **Python 3.13.12**（计划写 3.11+），khl.py 0.3.17 / httpx 0.28.1 / python-dotenv，3.13 兼容无碍；venv 在 `.venv/`。
+- 技术栈定死：Python + khl.py（WebSocket）+ httpx + SQLite；数据源走亚服三件套（gameinfo-sgp / east AODP / albionbb-asia），别混区。
+- 所有设计决议已收口进 `KOOK机器人实现计划.md` 第十一节，无遗留待定项。
+- 项目 GitHub 仓库地址：`https://github.com/Fat-Jan/Albion.git`，本地 Git remote `origin` 已指向该地址。
+- 当前线上进程：`.venv/bin/python -m bot.main`，日志写 `bot.log`；2026-06-14 清理旧进程后只保留 PID `20891`。
+- 当前数据库概况（2026-06-14 复查）：`guild_binding=1`、`player_binding=3`、`regear_request=0`、`regear_reviewer_request=0`、`market_price_reference=6234`。旧补装测试记录清理前已备份到 `data/backups/`。
+
+## 已收口的关键决议（2026-06-14）
+
+- 死亡播报 + 退会复查放**一期**一起做，共用 asyncio 定时轮询骨架。
+- 估值默认口径：红城近 7 天 `avg_price`（走 AODP `/history` time-scale=24），稀疏回退多城近 7 天 avg_price 中位，过滤 0 与离群（>中位 3 倍剔除）。同品质无价时，同物品其他品质 history 或 `/prices` sell_min 按 ×0.85 兜底，避免派系/Avalon/高 tier 低频武器主副手估 0。补装金额只算穿戴装备，背包物品仅在详情/播报总损失中展示，不计入补装；补装审核卡必须明示该口径。`/prices` 现价也给 `/物价`。
+- 所有权验证：方案二（名字匹配+审批）+ KOOK 角色预检做**信心分级**（持可信身份组+API 命中可快速通过），非硬门槛，避免新人死锁。
+- 功能盘对比同类 bot 后一期补：`/金价`、`/榜单`、死亡播报分击杀/阵亡+大额高亮、`/补装`（复用估值+审批）；`/出勤`只做最近 N 场快照，趋势版+采集器归二期。
+- 明确不做：经济/虚拟银行/税、CTA 排期、运输套利、武器对战矩阵。
+- 物品中文名接 ao-bin-dumps `LocalizedNames["ZH-CN"]`，预处理成本地 dict 随包，不运行时拉 GitHub。
+- 大额击杀阈值做成 `/设置 大额阈值 <fame>`，默认 100k fame，管理员自调。
+- 文档入口：`README.md` 已更新为当前状态；`使用说明书.md` 已新增，覆盖管理员初始化、成员绑定、补装流程、自动任务、估值口径和运维排错。
+- AI 判断：当前不建议把 AI 接入正式审批/金额决策链路；适合后续做辅助层，例如战报总结、补装异常解释、新手命令引导、自然语言查询数据库状态。
+
+## 坑点 / 注意
+
+- 亚服 AODP 市场稀疏 + 有离群噪音（实测某城 T4_BAG 挂单 333333），估值必须兜底，不取单点。
+- 官方 API 偶发数天故障（社区常态），所有调用要容错 + 退避。
+- KOOK 每日发消息上限 1 万，死亡播报要控频 + 去重。
+- murderledger / albiondb 有 Cloudflare 拦截，程序化用不了，只能官方源自己聚合。
+- 玩家/公会查询要先 `/search` 拿 base64 ID 再查详情。
+- **khl.py 权限坑**：消息作者 GuildUser 的 `guild_id` 为空，`user.fetch_roles()` 会以空 id 请求 `guild-role/list` 报 400。正确做法：`guild.fetch_roles()` 拉全量 + 作者 `user.roles` id 列表求交集（见 `bot/perms.py`）。
+- 管理权限判定按位：管理员(0)/管理服务器(1)/管理频道(5)/管理角色(10) 任一即放行（频道管理员及以上）。
+- **官方 `/events?guildId=` 只回本会"击杀"，不含"阵亡"**（实证：真实阵亡事件翻 4 页都不在 guild feed）。死亡播报改走**全局 `/events` 多页 + 双向筛**（killer/victim 任一是本会）。亚服全局约 36 事件/分钟，每 2 分钟拉 4 页足够覆盖；ZvZ 突发超覆盖会丢少量（已记日志、控频 15 条/轮）。
+- khl 卡片：`channel.send(CardMessage)` 自动按 type=CARD 发；按钮值用 JSON {act, ...}，多个 on_event(MESSAGE_BTN_CLICK) handler 各自按 act 过滤。链接按钮用 `Element.Button(text, url, Types.Click.LINK)`。
+- **物品翻译坑**：派系坐骑等特殊物品 UniqueName 自带 `@N`（如 `T5_MOUNT_COUGAR_KEEPER@1`=迅爪），基名查不到 → `items.localized` 已加整串直查兜底。`items.tier_enchant` 从 id 解析 `T层级.附魔` 标注。
+- 时间口径：官方 API 全 UTC；卡片用 `query_cards.beijing()` 加「北京 MM-DD HH:MM」注释（UTC+8）。
+- 死亡详情：`/补装` 列表每条带 [详情]（出装备明细+估值+官方击杀板链接 `albiononline.com/killboard/kill/{EventId}?server=live_sgp`）和 [选这个补装]。
+- 补装流程：已有 SQLite `regear_request` 管理申请。`pending`=待审批，审批通过前会重新按当前估值刷新金额并落 `approved`=待发放；线下发银/物资后点 [标记已发放] 落 `paid`（独立 `paid_by/paid_at`，不覆盖 `reviewed_by/reviewed_at`）。补装审核已和 KOOK 管理员权限解耦：管理员用 `/设置 补装审核身份组 @身份组` 配置后，成员可 `/补装审核` 申请该身份，管理员审批通过会自动发组；之后持该身份组的人可 `/补装 待处理`、`/补装 待发放`、`/补装 列表` 并审批/拒绝/标记发放。补装卡片频道独立为 `regear_channel_id`，用 `/设置 补装频道 #频道` 配置；未配置时兼容兜底到旧 `approval_channel_id`。
+- **武器/副手低价参考库**：SQLite `market_price_reference` 已落地，范围是 T4-T8 的 `MAIN_`/战斗类 `2H_`/`OFF_`，包含未附魔和 `@1~@4`，按品质 1-5 存各城 `sell_price_min` 的低价参考（剔除高离群）。补装/估值仍优先 history 与实时 `/prices`，实时拿不到时才用库内参考价兜底。手动刷新：`.venv/bin/python -m scripts.refresh_price_reference`；机器人运行后每 3 天自动刷新一次。2026-06-14 首次真实刷新：3875 个物品 id，116250 条 API 行，写入 6234 条 `(item_id, quality)` 参考价。
+- **死亡事件地点官方不给（已定论）**：复验全局 51 条 + 历史 357 条，`KillArea` 全 `OPEN_WORLD`，`Location`/`Category`/`GvGMatch` 全 `null`，16 个顶层字段无其它地理字段。SBI 故意不对公开 API 暴露死亡地图（论坛多年请求未果）；第三方站（同源数据 + CF 拦截）与客户端 Photon 抓包（服务器 bot 不在现场）均不可行 → 地点显示无意义。播报卡、补装卡和 `/估值` 已去掉地点展示，只保留时间、IP 和规模。
+- **玩家 kills/deaths 端点锁最近 10 条**，`limit`/`offset` 无效，抓不到更多历史。
+- **遭遇规模分层预估**：`numberOfParticipants` 是"补刀人数"（常=4，会把 ZvZ 误标小团，已弃用）。改用 `GroupMembers`(=主角所在小队，恒含主角本人) 做队伍口径 `scale_label`（单人1/小团2-7/团战8-20/ZvZ20+，免 API，用于列表/播报/估值）。详情卡用 `battle_scale_line`：查 `/battles/{id}` 整场人数（小规模≤6/小团≤30/团战≤80/ZvZ>80）显示「你队N人 整场M人 类别」+ 尖刀小队推测。
+- **尖刀/炸弹小队启发式**（仅详情卡）：你队 `GroupMembers≤10` 且 整场 `players≥40` → 标「⚡尖刀/炸弹小队?(推测)」。`gi.battle(id)` 查询，失败回退队伍口径。
+- **KOOK 卡片图片坑**：`Module.ImageGroup` 内 `Element.Image` 不能带 `size`（带 `sm` 会 40000 校验失败），用默认即可；外链图（官方渲染 `render.albiononline.com/v1/item/{id}.png?quality=N`）KOOK 服务端会抓取并缓存到自有 CDN，无需本地中转。`items.render_url()` 是图床方案的唯一改动点。
+
+## 进度
+
+| 里程碑 | 状态 |
+|---|---|
+| 规划 + 接口实测 | ✅ 完成 |
+| M0 脚手架（khl.py 连 WS + /ping） | ✅ 已运行 |
+| M1 数据层 | ✅ 完成，真实 API 端到端跑通 |
+| M2 公会绑定 | ✅ 完成，活测通过（搜索→会长/联盟卡片→按钮→落库） |
+| M3 玩家绑定+审批 | ✅ 代码完成，逻辑验过，KOOK 交互继续活测 |
+| M4 查询指令 | ✅ 代码完成，6 指令数据对真实 API 全通 |
+| M5 补装 | ✅ 已扩展：独立频道、审核身份组、待发放/已发放、背包不计补装 |
+| M6 自动任务（播报+退会复查） | ✅ 已运行：全局 feed 双向筛、价格参考库定时刷新 |
+| M7 出勤快照 | ⬜ 下一步 |
+
+### M3-M6 验证记录（2026-06-14）
+- M4：armskey/muaowo 不在 Mika；用 Mika Top 成员验：战绩(KD/近战)、估值(luge666 153万)、榜单(Top10)、物价(老手级双剑反查)、金价(12446)、战役(3条) 全通。
+- M5：估值路径复用 valuation，对真实死亡事件出值正常；补装审批通过前会重新估值，`approved` 后可继续标记 `paid`。
+- M6：全局 feed 双向筛实证抓到本会击杀+阵亡；去重稳定。
+- 离线全量编译通过；线上 bot 已带 M3-M6 和补装口径修复重启。
+- 2026-06-14 文档同步：`README.md` 重写为当前项目入口，新增 `使用说明书.md`。
+
+## 待活测清单（用户回来测）
+
+在测试服（4676167053713576，已绑 Mika，会员组=老兵，审批频道=审批测试）：
+1. **M3 /绑定**：发 `/绑定 <Mika成员名>` → 审批频道出卡片 → 点[通过] → 该用户拿到「老兵」组 + 昵称改成角色名。再测不在 Mika 的角色（如 armskey）应被拒。`/解绑` 撤组。
+   - 前置：bot 身份组要**高于**「老兵」且有「管理身份组」「修改他人昵称」权限，否则发组/改名会失败（有告警提示）。
+2. **M4**：`/战绩 <名>`、`/估值 <名>`、`/榜单 pvp`、`/榜单 pve`、`/物价 老手级双剑`、`/金价`、`/战役`。
+3. **M5 /补装**：先 `/设置 补装频道 #频道`（未设会兜底到 `/设置 审批频道`）和 `/设置 补装审核身份组 @身份组` → 普通成员 `/补装审核` → 审批频道出身份申请卡 → 管理员点[通过] 自动发组 → 该成员可测 `/补装 待处理`、`/补装 待发放`、`/补装 列表` 与补装卡 [通过]/[拒绝]/[标记已发放]。补装申请侧：/绑定 自己 → `/补装` → 点 [详情] 看装备明细+击杀板链接，或 [选这个补装] → 补装频道出补装卡 → [通过] → 出「待发放」卡 → 发放后点 [标记已发放]。
+4. **M6 播报**：`/设置 播报频道 <频道>` → 等 2 分钟，有 Mika 击杀/阵亡会推卡片（大额金色高亮）。退会复查是每日 4 点 cron。
+
+## 下一步
+
+M7 出勤快照：`/出勤` 用 `/battles?guildId=` + `/events/battle/{id}` 聚合最近 N 场参战者，出成员出勤次数。趋势版需采集器（二期）。

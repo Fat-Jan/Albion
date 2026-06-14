@@ -1,0 +1,340 @@
+"""补装指令：/补装 列最近死亡 → 选一个 → 估值 → 审批 → 记账。
+
+复用估值（valuation）+ 审批流（按钮事件）。审批卡片优先发到补装频道，未设置则兜底到绑定审批频道。
+"""
+import json
+import logging
+
+from khl import Bot, EventTypes, Message
+
+from bot import perms
+from bot.albion import valuation
+from bot.albion.gameinfo import GameInfo
+from bot.albion.market import Market
+from bot.cards.regear_cards import (
+    death_detail_card,
+    death_select_card,
+    regear_apply_card,
+    regear_approved_card,
+    regear_queue_card,
+    regear_reviewer_apply_card,
+)
+from bot.store import repo
+
+log = logging.getLogger(__name__)
+
+_QUEUE_FILTERS = {
+    "待处理": ("pending",),
+    "待审批": ("pending",),
+    "待发放": ("approved",),
+    "已通过": ("approved",),
+    "列表": None,
+    "全部": None,
+}
+
+
+def _regear_approval_channel(guild_binding: dict | None) -> str | None:
+    if not guild_binding:
+        return None
+    return guild_binding.get("regear_channel_id") or guild_binding.get("approval_channel_id")
+
+
+def _configured_regear_reviewer_roles(guild_binding: dict | None) -> set[str]:
+    raw = (guild_binding or {}).get("regear_reviewer_role_ids") or ""
+    return {r.strip() for r in raw.split(",") if r.strip()}
+
+
+def _has_regear_reviewer_role(user, guild_binding: dict | None) -> bool:
+    configured = _configured_regear_reviewer_roles(guild_binding)
+    if not configured:
+        return False
+    user_roles = {str(r) for r in (getattr(user, "roles", []) or [])}
+    return bool(configured & user_roles)
+
+
+async def _can_manage_regear(guild, user, guild_binding: dict | None = None) -> bool:
+    if await perms.is_guild_admin(guild, user):
+        return True
+    binding = guild_binding if guild_binding is not None else repo.get_guild_binding(guild.id)
+    return _has_regear_reviewer_role(user, binding)
+
+
+def register(bot: Bot, gi: GameInfo, mk: Market) -> None:
+    @bot.command(name="补装")
+    async def regear_cmd(msg: Message, *args):
+        if args:
+            await _handle_queue_cmd(msg, args)
+            return
+
+        kgid = msg.ctx.guild.id
+        binding = repo.get_player_binding(msg.author.id, kgid)
+        if not binding:
+            await msg.reply("请先 /绑定 你的游戏角色，再申请补装。")
+            return
+        gbind = repo.get_guild_binding(kgid)
+        if not _regear_approval_channel(gbind):
+            await msg.reply("管理员还没 /设置 补装频道，暂时无法申请补装。")
+            return
+        try:
+            deaths = await gi.player_deaths(binding["albion_player_id"])
+        except Exception as exc:
+            log.warning("拉取死亡失败: %s", exc)
+            await msg.reply("⚠️ 查询失败，稍后再试。")
+            return
+        if not deaths:
+            await msg.reply("你最近没有死亡记录。")
+            return
+        await msg.reply(death_select_card(binding["albion_player_name"], deaths))
+
+    @bot.command(name="补装审核")
+    async def regear_reviewer_cmd(msg: Message, *args):
+        kgid = msg.ctx.guild.id
+        kuid = msg.author.id
+        gbind = repo.get_guild_binding(kgid)
+        if not gbind:
+            await msg.reply("本服还没绑定公会，请管理员先 /绑定公会。")
+            return
+        if not _configured_regear_reviewer_roles(gbind):
+            await msg.reply("管理员还没 /设置 补装审核身份组，暂时无法申请。")
+            return
+        if _has_regear_reviewer_role(msg.author, gbind):
+            await msg.reply("你已经有补装审核身份组了。")
+            return
+        if repo.get_open_regear_reviewer_request(kgid, kuid):
+            await msg.reply("你已有一条补装审核身份申请正在审批中，请耐心等待。")
+            return
+        approval_channel_id = gbind.get("approval_channel_id") or _regear_approval_channel(gbind)
+        if not approval_channel_id:
+            await msg.reply("管理员还没 /设置 审批频道，暂时无法提交补装审核身份申请。")
+            return
+
+        request_id = repo.create_regear_reviewer_request(kgid, kuid)
+        try:
+            approval = await bot.client.fetch_public_channel(approval_channel_id)
+            sent = await approval.send(regear_reviewer_apply_card(request_id, kuid))
+            msg_id = sent.get("msg_id") if isinstance(sent, dict) else None
+            if msg_id:
+                repo.set_regear_reviewer_request_message(request_id, msg_id)
+        except Exception as exc:
+            log.warning("发补装审核身份申请卡片失败: %s", exc)
+            repo.set_regear_reviewer_request_status(request_id, "rejected", "system")
+            await msg.reply("⚠️ 提交失败（检查审批频道）。")
+            return
+        await msg.reply("📨 已提交补装审核身份申请，等待管理员审批。")
+
+    @bot.on_event(EventTypes.MESSAGE_BTN_CLICK)
+    async def on_regear_click(b: Bot, event):
+        body = event.body or {}
+        try:
+            val = json.loads(body.get("value") or "")
+        except (ValueError, TypeError):
+            return
+        act = val.get("act")
+        if act not in (
+            "regear_pick",
+            "regear_detail",
+            "regear_approve",
+            "regear_reject",
+            "regear_paid",
+            "regear_reviewer_approve",
+            "regear_reviewer_reject",
+        ):
+            return
+
+        guild_id = body.get("guild_id")
+        clicker = body.get("user_id")
+        channel_id = body.get("channel_id") or body.get("target_id")
+        try:
+            channel = await b.client.fetch_public_channel(channel_id)
+        except Exception as exc:
+            log.warning("拉取频道失败: %s", exc)
+            return
+
+        if act == "regear_detail":
+            await _handle_detail(b, gi, mk, val, channel)
+        elif act == "regear_pick":
+            await _handle_pick(b, gi, mk, val, guild_id, clicker, channel)
+        elif act in ("regear_reviewer_approve", "regear_reviewer_reject"):
+            await _handle_reviewer_request_review(b, act, val, guild_id, clicker, channel)
+        else:
+            await _handle_review(b, gi, mk, act, val, guild_id, clicker, channel)
+
+
+async def _handle_queue_cmd(msg: Message, args):
+    key = args[0]
+    if key not in _QUEUE_FILTERS:
+        await msg.reply("用法：`/补装` 或 `/补装 待处理|待发放|列表`")
+        return
+    gbind = repo.get_guild_binding(msg.ctx.guild.id)
+    if not await _can_manage_regear(msg.ctx.guild, msg.author, gbind):
+        await msg.reply("⛔ 只有管理员或补装审核身份组可以查看补装队列。")
+        return
+    statuses = _QUEUE_FILTERS[key]
+    rows = repo.list_regear(msg.ctx.guild.id, statuses=statuses, limit=10)
+    await msg.reply(regear_queue_card(f"补装{key}", rows))
+
+
+async def _handle_detail(b, gi, mk, val, channel):
+    eid = val.get("eid")
+    try:
+        ev = await gi.event(eid)
+        result = await valuation.estimate(ev, mk)
+    except Exception as exc:
+        log.warning("死亡详情估值失败: %s", exc)
+        await channel.send("⚠️ 查询详情失败，稍后再试。")
+        return
+    # 战役总人数：用于推测是否 ZvZ 尖刀/炸弹小队（失败不阻断详情）
+    battle_players = 0
+    bid = ev.get("BattleId")
+    if bid:
+        try:
+            battle = await gi.battle(bid)
+            players = (battle or {}).get("players")
+            battle_players = len(players) if isinstance(players, (list, dict)) else 0
+        except Exception as exc:
+            log.debug("查战役人数失败: %s", exc)
+    victim_name = (ev.get("Victim") or {}).get("Name", "?")
+    await channel.send(death_detail_card(victim_name, ev, result, battle_players))
+
+
+async def _handle_pick(b, gi, mk, val, guild_id, clicker, channel):
+    binding = repo.get_player_binding(clicker, guild_id)
+    if not binding:
+        await channel.send("请先 /绑定 角色再申请补装。")
+        return
+    gbind = repo.get_guild_binding(guild_id)
+    approval_channel_id = _regear_approval_channel(gbind)
+    if not approval_channel_id:
+        await channel.send("管理员还没 /设置 补装频道。")
+        return
+    eid = val.get("eid")
+    try:
+        ev = await gi.event(eid)
+        result = await valuation.estimate(ev, mk)
+    except Exception as exc:
+        log.warning("补装估值失败: %s", exc)
+        await channel.send("⚠️ 估值失败，稍后再试。")
+        return
+
+    rid = repo.create_regear(
+        guild_id, clicker, binding["albion_player_id"], str(eid), result["total"]
+    )
+    try:
+        approval = await b.client.fetch_public_channel(approval_channel_id)
+        sent = await approval.send(
+            regear_apply_card(rid, clicker, binding["albion_player_name"], ev, result["total"])
+        )
+        msg_id = sent.get("msg_id") if isinstance(sent, dict) else None
+        if msg_id:
+            repo.set_regear_message(rid, msg_id)
+    except Exception as exc:
+        log.warning("发补装审批卡片失败: %s", exc)
+        repo.set_regear_status(rid, "rejected", "system")
+        await channel.send("⚠️ 提交失败（检查审批频道）。")
+        return
+    await channel.send(
+        f"📨 已提交补装申请（补装金额 ≈ {result['total']:,} 银，仅计算穿戴装备；背包不计入），等待管理员审批。"
+    )
+
+
+async def _refresh_regear_estimate(regear_id: int, gi: GameInfo, mk: Market) -> int:
+    rr = repo.get_regear(regear_id)
+    if not rr:
+        raise ValueError(f"regear request not found: {regear_id}")
+    ev = await gi.event(rr["event_id"])
+    result = await valuation.estimate(ev, mk)
+    repo.update_regear_est_value(regear_id, result["total"])
+    return int(result["total"])
+
+
+async def _handle_review(b, gi, mk, act, val, guild_id, clicker, channel):
+    try:
+        guild = await b.client.fetch_guild(guild_id)
+        clicker_user = await guild.fetch_user(clicker)
+    except Exception as exc:
+        log.warning("拉取公会/点击者失败: %s", exc)
+        await channel.send("⚠️ 校验权限失败，稍后再试。")
+        return
+    gbind = repo.get_guild_binding(guild_id)
+    if not await _can_manage_regear(guild, clicker_user, gbind):
+        await channel.send("⛔ 只有管理员或补装审核身份组可以审批补装。")
+        return
+
+    rid = val.get("rid")
+    rr = repo.get_regear(rid)
+    if not rr:
+        await channel.send("该补装申请已处理或失效。")
+        return
+
+    from bot.cards.query_cards import fmt
+
+    if act == "regear_paid":
+        if rr["status"] != "approved":
+            await channel.send("只有已通过、待发放的补装申请才能标记已发放。")
+            return
+        repo.set_regear_paid(rid, clicker)
+        await channel.send(
+            f"✅ 已标记 (met){rr['kook_user_id']}(met) 的补装已发放，金额 ≈ {fmt(rr['est_value'])} 银。"
+        )
+        return
+
+    if rr["status"] != "pending":
+        await channel.send("该补装申请已处理或失效。")
+        return
+
+    if act == "regear_reject":
+        repo.set_regear_status(rid, "rejected", clicker)
+        await channel.send(f"❌ 已拒绝 (met){rr['kook_user_id']}(met) 的补装申请。")
+        return
+    try:
+        await _refresh_regear_estimate(rid, gi, mk)
+        rr = repo.get_regear(rid) or rr
+    except Exception as exc:
+        log.warning("审批前刷新补装估值失败，沿用旧值: %s", exc)
+    repo.set_regear_status(rid, "approved", clicker)
+    rr = repo.get_regear(rid) or rr
+    await channel.send(regear_approved_card(rr))
+
+
+async def _handle_reviewer_request_review(b, act, val, guild_id, clicker, channel):
+    try:
+        guild = await b.client.fetch_guild(guild_id)
+        clicker_user = await guild.fetch_user(clicker)
+    except Exception as exc:
+        log.warning("拉取公会/点击者失败: %s", exc)
+        await channel.send("⚠️ 校验权限失败，稍后再试。")
+        return
+    if not await perms.is_guild_admin(guild, clicker_user):
+        await channel.send("⛔ 只有管理员可以审批补装审核身份。")
+        return
+
+    request_id = val.get("rid")
+    req = repo.get_regear_reviewer_request(request_id)
+    if not req or req["status"] != "pending":
+        await channel.send("该补装审核身份申请已处理或失效。")
+        return
+
+    if act == "regear_reviewer_reject":
+        repo.set_regear_reviewer_request_status(request_id, "rejected", clicker)
+        await channel.send(f"❌ 已拒绝 (met){req['kook_user_id']}(met) 的补装审核身份申请。")
+        return
+
+    binding = repo.get_guild_binding(guild_id)
+    role_ids = sorted(_configured_regear_reviewer_roles(binding))
+    if not role_ids:
+        await channel.send("⚠️ 未设置补装审核身份组，无法通过。请先 `/设置 补装审核身份组 @身份组`。")
+        return
+
+    warnings: list[str] = []
+    for role_id in role_ids:
+        try:
+            await guild.grant_role(req["kook_user_id"], int(role_id) if role_id.isdigit() else role_id)
+        except Exception as exc:
+            log.warning("发补装审核身份组失败 role=%s: %s", role_id, exc)
+            warnings.append(f"(rol){role_id}(rol)")
+
+    repo.set_regear_reviewer_request_status(request_id, "approved", clicker)
+    tip = ""
+    if warnings:
+        tip = "\n⚠️ 部分身份组发放失败，请检查 bot 身份组排序和管理身份组权限：" + " ".join(warnings)
+    await channel.send(f"✅ 已通过 (met){req['kook_user_id']}(met) 的补装审核身份申请。{tip}")
