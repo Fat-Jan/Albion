@@ -120,6 +120,7 @@ guild_binding(
   broadcast_channel_id       TEXT,
   kill_broadcast_channel_id  TEXT,
   death_broadcast_channel_id TEXT,
+  battle_report_channel_id   TEXT,
   member_change_channel_id   TEXT,
   regear_reviewer_role_ids   TEXT, -- 逗号分隔，补装审核/发放身份组
   trusted_role_ids           TEXT, -- 逗号分隔，绑定快速通道身份组
@@ -203,6 +204,8 @@ market_price_reference(
 - `/设置 播报频道 #频道` → 统一播报兜底
 - `/设置 击杀播报频道 #频道`
 - `/设置 阵亡播报频道 #频道`（兼容 `/设置 死亡播报频道 #频道`）
+- `/设置 战报推送频道 #频道`（兼容 `/设置 战报频道 #频道`）
+- `/设置 战报本会最小人数 <人数>` → 自动战报推送阈值，默认 20 人
 - `/设置 成员变动频道 #频道`
 - `/设置 大额阈值 <fame>`  → 死亡播报高亮门槛，默认 100k fame，可调
 - `/解绑公会`
@@ -233,7 +236,7 @@ market_price_reference(
   - 注意 KOOK 每日发消息上限 1 万，控频 + 去重
 - 退会复查：每日比对 `/guilds/{id}/members` → 退会自动撤销身份组，并通知成员变动频道
 - 价格参考库刷新：每 3 天刷新 T4-T8 主手/双手/副手低价参考
-- 战报自动推送：聚合模块和卡片已实现；定时推送、配置列、去重表仍按设计文档后续接入
+- 战报自动推送：北京时间 14:30 到次日 05:00 每 15 分钟检查 AlbionBB 候选战役，按绑定公会、本会最小参战人数和持久去重表过滤后推送到专属战报频道；当前尚未 KOOK/线上活测
 
 ---
 
@@ -258,7 +261,7 @@ albion-kook-bot/
 │   │   ├── client.py        # httpx + 缓存 + 限流 + 退避
 │   │   ├── gameinfo.py      # search/players/guilds/events/battles/fame
 │   │   ├── market.py        # AODP prices + gold
-│   │   ├── battle_report.py # ZvZ 战报聚合（自动推送尚未接入）
+│   │   ├── battle_report.py # ZvZ 战报聚合
 │   │   ├── valuation.py     # 装备+背包估值
 │   │   └── items.py         # ao-bin-dumps 物品名→中文
 │   └── store/db.py          # SQLite
@@ -284,7 +287,7 @@ albion-kook-bot/
 | **M6 自动任务** | 死亡播报（分击杀/阵亡+大额高亮）+ 退会复查 | 公会有死亡时频道收到卡片；大额单独高亮；退会成员身份组被撤 |
 | **AI 辅助** | `/助手`、`/战报`、`/补装解释`，只读事实包 + 输出安全层 | LongCat 探针通过；只读边界和危险声明拦截有单测 |
 | **版本号控制** | `bot/version.py` 统一版本，`/ping` 带版本 | `tests/test_version.py` 通过 |
-| **战报聚合/卡片** | 生成 ZvZ 聚合报告和 KOOK 卡片 | `tests/test_battle_report.py` 通过；自动推送仍后续接入 |
+| **战报聚合/自动推送** | 生成 ZvZ 聚合报告和 KOOK 卡片，按专属频道自动推送并持久去重 | `tests/test_battle_report.py` 通过；尚未 KOOK/线上活测 |
 | **M7 出勤（快照）** | `/出勤` 最近 N 场参战者聚合 | 出成员出勤次数快照（趋势版+采集器归二期） |
 
 ---
@@ -315,7 +318,7 @@ albion-kook-bot/
 - **补装频道** → 新流程使用申请、审核、发放、通知四频道；旧 `regear_channel_id` 只做兼容兜底。
 - **AI 辅助** → LongCat/OpenAI 兼容接口默认关闭，启用后只走 `/助手`、`/战报`、`/补装解释`，输入为结构化事实包，输出层做危险动作声明拦截和密钥脱敏。
 - **版本号控制** → 当前版本 `1.0`，代码单一来源 `bot/version.py`；`/ping` 用同一版本源。
-- **战报推送** → 已完成战报聚合和卡片模块；自动战报推送需要再加配置列、去重表、管理员设置和 `auto.py` 定时任务，按 `docs/superpowers/specs/2026-06-14-battle-report-design.md` 执行。
+- **战报推送** → 已完成战报聚合、卡片模块、`battle_report_channel_id`、`battle_report_min_guild_players`、持久去重表和 `auto.py` 定时任务；当前仅有离线测试覆盖，后续需要真实 KOOK 活测和线上运行验证。
 
 待定：
 - （暂无，上述已收口）

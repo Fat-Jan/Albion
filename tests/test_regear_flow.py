@@ -30,6 +30,20 @@ def card_text(card_message) -> str:
     return "\n".join(texts)
 
 
+def section_texts(card_message) -> list[str]:
+    texts = []
+    for card in card_message:
+        for module in card.get("modules", []):
+            if module.get("type") != "section":
+                continue
+            text = module.get("text")
+            if isinstance(text, dict):
+                texts.append(text.get("content", ""))
+            elif isinstance(text, str):
+                texts.append(text)
+    return texts
+
+
 def card_buttons(card_message) -> list[dict]:
     buttons = []
     for card in card_message:
@@ -103,11 +117,13 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
         repo.set_setting("guild", "kill_broadcast_channel_id", "kill-broadcast")
         repo.set_setting("guild", "death_broadcast_channel_id", "death-broadcast")
+        repo.set_setting("guild", "battle_report_channel_id", "battle-report")
 
         row = repo.get_guild_binding("guild")
 
         self.assertEqual(row["kill_broadcast_channel_id"], "kill-broadcast")
         self.assertEqual(row["death_broadcast_channel_id"], "death-broadcast")
+        self.assertEqual(row["battle_report_channel_id"], "battle-report")
 
     def test_death_broadcast_channel_uses_split_channels_with_legacy_fallback(self):
         binding = {
@@ -339,6 +355,8 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/设置 补装审核频道 #频道", admin.SETTING_USAGE)
         self.assertIn("/设置 补装发放频道 #频道", admin.SETTING_USAGE)
         self.assertIn("/设置 补装通知频道 #频道", admin.SETTING_USAGE)
+        self.assertIn("/设置 战报推送频道 #频道", admin.SETTING_USAGE)
+        self.assertIn("/设置 战报本会最小人数 <人数>", admin.SETTING_USAGE)
 
     def test_regear_center_default_names_use_emoji(self):
         self.assertEqual(admin.REGEAR_CENTER_CATEGORY_NAME, "🛡️补装中心")
@@ -388,8 +406,14 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
 
         card = regear_apply_card(1, "user", "Latano", event, 1165632, result)
         text = card_text(card)
+        sections = section_texts(card)
         buttons = card_buttons(card)
 
+        self.assertIn("**审核事项**", text)
+        self.assertIn("**死亡事件**", text)
+        self.assertIn("**补装口径**", text)
+        self.assertIn("**装备明细**", text)
+        self.assertTrue(any("申请号：`#1`" in s and "角色：`Latano`" in s for s in sections))
         self.assertIn("补装金额 ≈ 1,165,632 银", text)
         self.assertIn("只计算穿戴装备", text)
         self.assertIn("背包物品不计入补装", text)
@@ -433,9 +457,14 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
 
         card = regear_approved_card(row, event, result)
         text = card_text(card)
+        sections = section_texts(card)
         buttons = card_buttons(card)
 
         self.assertIn("补装已通过，等待发放", text)
+        self.assertIn("**发放事项**", text)
+        self.assertIn("**死亡事件**", text)
+        self.assertIn("**装备明细**", text)
+        self.assertTrue(any("当前状态：`待发放`" in s and "金额 ≈ `1,165,632` 银" in s for s in sections))
         self.assertIn("审核时间", text)
         self.assertIn("被 `killer` [enemy] 击杀", text)
         self.assertIn("T8.1", text)

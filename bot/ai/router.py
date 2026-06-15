@@ -181,6 +181,8 @@ def _format_guild_config_fallback(facts: dict) -> str:
     lines.append(f"· 补装通知频道：{_configured_text(s.get('regear_notify_channel_id'))}")
     lines.append(f"· 旧补装频道兜底：{_configured_text(s.get('regear_channel_id'))}")
     lines.append(f"· 播报频道：{_configured_text(s.get('broadcast_channel_id'))}")
+    lines.append(f"· 战报推送频道：{_configured_text(s.get('battle_report_channel_id'))}")
+    lines.append(f"· 战报本会最小人数：{int(s.get('battle_report_min_guild_players') or 20)} 人")
     lines.append(f"· 补装审核身份组：{int(s.get('regear_reviewer_role_count') or 0)} 个")
     lines.append(f"· 可信身份组：{int(s.get('trusted_role_count') or 0)} 个")
     lines.append(f"· 大额阈值：{int(s.get('kill_fame_threshold') or 100000):,} fame")

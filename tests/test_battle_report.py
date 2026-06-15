@@ -1,7 +1,14 @@
+import os
+import tempfile
 import unittest
+from datetime import datetime
 
 from bot.albion.battle_report import build_battle_report
 from bot.cards.battle_report_cards import battle_report_card
+from bot import config
+from bot.store.db import init_db
+from bot.store import repo
+from bot.tasks import auto
 
 
 def card_text(card_message) -> str:
@@ -14,6 +21,20 @@ def card_text(card_message) -> str:
             elif isinstance(text, str):
                 texts.append(text)
     return "\n".join(texts)
+
+
+def section_texts(card_message) -> list[str]:
+    texts = []
+    for card in list(card_message):
+        for module in card.get("modules", []):
+            if module.get("type") != "section":
+                continue
+            text = module.get("text")
+            if isinstance(text, dict):
+                texts.append(text.get("content", ""))
+            elif isinstance(text, str):
+                texts.append(text)
+    return texts
 
 
 class BattleReportTest(unittest.TestCase):
@@ -56,7 +77,14 @@ class BattleReportTest(unittest.TestCase):
         )
 
         text = card_text(battle_report_card(report))
+        sections = section_texts(battle_report_card(report))
 
+        self.assertIn("**战场概况**", text)
+        self.assertIn("**本会表现**", text)
+        self.assertIn("**公会战力榜**", text)
+        self.assertIn("**联盟战力榜**", text)
+        self.assertIn("**本会高光**", text)
+        self.assertTrue(any("整场 6 人" in s and "总声望 `123.5万`" in s for s in sections))
         self.assertIn("Mika [5I7]　3人", text)
         self.assertIn("CCTV [HDD]　2人", text)
         self.assertIn("5I7　3人", text)
@@ -64,6 +92,138 @@ class BattleReportTest(unittest.TestCase):
         self.assertIn("击杀声望最高：`Bob`　`2.0万`", text)
         self.assertIn("阵亡最多：`Bob`　2 次", text)
         self.assertIn("阵亡声望最高：`Cathy`　`90.0万`", text)
+
+
+class BattleReportAutoTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.old_db = config.DB_PATH
+        config.DB_PATH = os.path.join(self.tmp.name, "bot.db")
+        init_db()
+
+    def tearDown(self):
+        config.DB_PATH = self.old_db
+        self.tmp.cleanup()
+
+    def test_battle_report_window_uses_beijing_cross_midnight_range(self):
+        self.assertFalse(auto._should_run_battle_report(datetime(2026, 6, 14, 6, 29)))
+        self.assertTrue(auto._should_run_battle_report(datetime(2026, 6, 14, 6, 30)))
+        self.assertTrue(auto._should_run_battle_report(datetime(2026, 6, 14, 15, 59)))
+        self.assertTrue(auto._should_run_battle_report(datetime(2026, 6, 14, 20, 59)))
+        self.assertFalse(auto._should_run_battle_report(datetime(2026, 6, 14, 21, 0)))
+
+    def test_seen_table_is_persistent_per_kook_guild_and_battle(self):
+        repo.bind_guild("guild-a", "albion-a", "Mika", "admin")
+        repo.bind_guild("guild-b", "albion-a", "Mika", "admin")
+
+        self.assertFalse(repo.has_seen_battle_report("guild-a", "battle-1"))
+        repo.mark_battle_report_seen("guild-a", "battle-1")
+
+        self.assertTrue(repo.has_seen_battle_report("guild-a", "battle-1"))
+        self.assertFalse(repo.has_seen_battle_report("guild-b", "battle-1"))
+
+    async def test_battle_report_tick_sends_and_marks_seen_after_success(self):
+        repo.bind_guild("guild", "albion-guild", "Mika", "admin")
+        repo.set_setting("guild", "battle_report_channel_id", "battle-channel")
+        repo.set_setting("guild", "battle_report_min_guild_players", 2)
+        bot = FakeBot()
+        gi = FakeBattleGameInfo(_battle_detail(), _battle_events())
+        bb = FakeAlbionBB(
+            [
+                {
+                    "albionId": "123",
+                    "guilds": [{"name": "Mika", "killFame": 32000}],
+                }
+            ]
+        )
+
+        await auto._run_battle_report_tick(
+            bot,
+            gi,
+            bb,
+            now=datetime(2026, 6, 14, 6, 30),
+        )
+
+        self.assertEqual(bb.calls, [{"minPlayers": 20, "page": 1}])
+        self.assertEqual(bot.client.channels["battle-channel"].send_count, 1)
+        self.assertTrue(repo.has_seen_battle_report("guild", "123"))
+
+    async def test_battle_report_tick_skips_unconfigured_window_and_seen(self):
+        repo.bind_guild("guild", "albion-guild", "Mika", "admin")
+        repo.set_setting("guild", "battle_report_channel_id", "battle-channel")
+        repo.set_setting("guild", "battle_report_min_guild_players", 2)
+        bot = FakeBot()
+        gi = FakeBattleGameInfo(_battle_detail(), _battle_events())
+        bb = FakeAlbionBB(
+            [{"albionId": "123", "guilds": [{"name": "Mika"}]}]
+        )
+
+        await auto._run_battle_report_tick(
+            bot,
+            gi,
+            bb,
+            now=datetime(2026, 6, 14, 6, 29),
+        )
+        self.assertEqual(bb.calls, [])
+
+        await auto._run_battle_report_tick(
+            bot,
+            gi,
+            bb,
+            now=datetime(2026, 6, 14, 6, 30),
+        )
+        await auto._run_battle_report_tick(
+            bot,
+            gi,
+            bb,
+            now=datetime(2026, 6, 14, 6, 45),
+        )
+
+        self.assertEqual(len(bb.calls), 2)
+        self.assertEqual(bot.client.channels["battle-channel"].send_count, 1)
+
+    async def test_battle_report_tick_keeps_unseen_when_send_fails(self):
+        repo.bind_guild("guild", "albion-guild", "Mika", "admin")
+        repo.set_setting("guild", "battle_report_channel_id", "battle-channel")
+        repo.set_setting("guild", "battle_report_min_guild_players", 2)
+        bot = FakeBot(fail_send=True)
+        gi = FakeBattleGameInfo(_battle_detail(), _battle_events())
+        bb = FakeAlbionBB(
+            [{"albionId": "123", "guilds": [{"name": "Mika"}]}]
+        )
+
+        await auto._run_battle_report_tick(
+            bot,
+            gi,
+            bb,
+            now=datetime(2026, 6, 14, 6, 30),
+        )
+
+        self.assertFalse(repo.has_seen_battle_report("guild", "123"))
+
+    async def test_battle_report_tick_filters_by_guild_and_min_participants(self):
+        repo.bind_guild("guild", "albion-guild", "Mika", "admin")
+        repo.set_setting("guild", "battle_report_channel_id", "battle-channel")
+        repo.set_setting("guild", "battle_report_min_guild_players", 4)
+        bot = FakeBot()
+        gi = FakeBattleGameInfo(_battle_detail(), _battle_events())
+        bb = FakeAlbionBB(
+            [
+                {"albionId": "123", "guilds": [{"name": "Mika"}]},
+                {"albionId": "999", "guilds": [{"name": "Enemy"}]},
+            ]
+        )
+
+        await auto._run_battle_report_tick(
+            bot,
+            gi,
+            bb,
+            now=datetime(2026, 6, 14, 6, 30),
+        )
+
+        self.assertEqual(gi.battle_ids, ["123"])
+        channel = bot.client.channels.get("battle-channel")
+        self.assertEqual(channel.send_count if channel else 0, 0)
 
 
 def _battle_detail():
@@ -151,3 +311,58 @@ def _battle_events():
             "Victim": {"Name": "Cathy", "Id": "p3", "GuildName": "Mika"},
         },
     ]
+
+
+class FakeAlbionBB:
+    def __init__(self, rows):
+        self.rows = rows
+        self.calls = []
+
+    async def albionbb_get(self, path, params=None, ttl=300):
+        self.calls.append(dict(params or {}))
+        self.path = path
+        return self.rows
+
+
+class FakeBattleGameInfo:
+    def __init__(self, detail, events):
+        self.detail = detail
+        self.events = events
+        self.battle_ids = []
+
+    async def battle(self, battle_id):
+        self.battle_ids.append(str(battle_id))
+        return self.detail
+
+    async def battle_events(self, battle_id, limit=51, offset=0):
+        return self.events
+
+
+class FakeBot:
+    def __init__(self, *, fail_send=False):
+        self.client = FakeClient(fail_send=fail_send)
+
+
+class FakeClient:
+    def __init__(self, *, fail_send=False):
+        self.fail_send = fail_send
+        self.channels = {}
+
+    async def fetch_public_channel(self, channel_id):
+        channel = self.channels.get(channel_id)
+        if channel is None:
+            channel = FakeChannel(fail_send=self.fail_send)
+            self.channels[channel_id] = channel
+        return channel
+
+
+class FakeChannel:
+    def __init__(self, *, fail_send=False):
+        self.fail_send = fail_send
+        self.send_count = 0
+
+    async def send(self, message):
+        if self.fail_send:
+            raise RuntimeError("send failed")
+        self.send_count += 1
+        self.last_message = message

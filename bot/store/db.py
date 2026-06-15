@@ -1,6 +1,6 @@
 """SQLite 存储：绑定关系 + 审批 + 补装。数据量小，用 stdlib sqlite3 同步即可。
 
-列在计划第六节基础上补了 M2+ 设置项所需字段（播报频道/击杀播报频道/阵亡播报频道/成员变动频道/可信身份组/大额阈值）。
+列在计划第六节基础上补了 M2+ 设置项所需字段（播报频道/击杀播报频道/阵亡播报频道/战报推送频道/成员变动频道/可信身份组/大额阈值）。
 """
 import os
 import sqlite3
@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS guild_binding (
   broadcast_channel_id TEXT,
   kill_broadcast_channel_id TEXT,
   death_broadcast_channel_id TEXT,
+  battle_report_channel_id TEXT,
+  battle_report_min_guild_players INTEGER DEFAULT 20,
   member_change_channel_id TEXT,
   regear_reviewer_role_ids TEXT,             -- 逗号分隔：可审批/发放补装的身份组
   trusted_role_ids     TEXT,                 -- 角色预检：逗号分隔的可信身份组
@@ -98,6 +100,14 @@ CREATE TABLE IF NOT EXISTS market_price_reference (
   updated_at   TEXT DEFAULT (datetime('now')),
   PRIMARY KEY (item_id, quality)
 );
+
+-- 自动战报推送去重：同一 KOOK 服务器一场战役只推一次。
+CREATE TABLE IF NOT EXISTS battle_report_seen (
+  kook_guild_id TEXT NOT NULL,
+  battle_id     TEXT NOT NULL,
+  reported_at   TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (kook_guild_id, battle_id)
+);
 """
 
 
@@ -155,14 +165,28 @@ def _ensure_guild_binding_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE guild_binding ADD COLUMN regear_payout_channel_id TEXT")
     if "regear_notify_channel_id" not in cols:
         conn.execute("ALTER TABLE guild_binding ADD COLUMN regear_notify_channel_id TEXT")
+    if "broadcast_channel_id" not in cols:
+        conn.execute("ALTER TABLE guild_binding ADD COLUMN broadcast_channel_id TEXT")
     if "kill_broadcast_channel_id" not in cols:
         conn.execute("ALTER TABLE guild_binding ADD COLUMN kill_broadcast_channel_id TEXT")
     if "death_broadcast_channel_id" not in cols:
         conn.execute("ALTER TABLE guild_binding ADD COLUMN death_broadcast_channel_id TEXT")
+    if "battle_report_channel_id" not in cols:
+        conn.execute("ALTER TABLE guild_binding ADD COLUMN battle_report_channel_id TEXT")
+    if "battle_report_min_guild_players" not in cols:
+        conn.execute(
+            "ALTER TABLE guild_binding ADD COLUMN battle_report_min_guild_players INTEGER DEFAULT 20"
+        )
     if "member_change_channel_id" not in cols:
         conn.execute("ALTER TABLE guild_binding ADD COLUMN member_change_channel_id TEXT")
     if "regear_reviewer_role_ids" not in cols:
         conn.execute("ALTER TABLE guild_binding ADD COLUMN regear_reviewer_role_ids TEXT")
+    if "trusted_role_ids" not in cols:
+        conn.execute("ALTER TABLE guild_binding ADD COLUMN trusted_role_ids TEXT")
+    if "kill_fame_threshold" not in cols:
+        conn.execute(
+            "ALTER TABLE guild_binding ADD COLUMN kill_fame_threshold INTEGER DEFAULT 100000"
+        )
 
 
 if __name__ == "__main__":

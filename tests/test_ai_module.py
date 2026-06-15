@@ -446,6 +446,8 @@ class AIContextTest(unittest.TestCase):
                 "broadcast_channel_id": "",
                 "kill_broadcast_channel_id": None,
                 "death_broadcast_channel_id": None,
+                "battle_report_channel_id": "battle-report",
+                "battle_report_min_guild_players": 25,
                 "member_change_channel_id": None,
                 "regear_channel_id": "regear",
                 "regear_apply_channel_id": "regear-apply",
@@ -465,6 +467,8 @@ class AIContextTest(unittest.TestCase):
         self.assertEqual(context["settings"]["regear_review_channel_id"], "regear-review")
         self.assertEqual(context["settings"]["regear_payout_channel_id"], "regear-payout")
         self.assertEqual(context["settings"]["regear_notify_channel_id"], "regear-notify")
+        self.assertEqual(context["settings"]["battle_report_channel_id"], "battle-report")
+        self.assertEqual(context["settings"]["battle_report_min_guild_players"], 25)
         self.assertEqual(context["settings"]["regear_reviewer_role_count"], 2)
         self.assertNotIn("created_by", context)
 

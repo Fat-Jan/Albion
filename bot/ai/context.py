@@ -206,6 +206,10 @@ def guild_config_context(binding: dict | None) -> dict:
             "broadcast_channel_id": b.get("broadcast_channel_id"),
             "kill_broadcast_channel_id": b.get("kill_broadcast_channel_id"),
             "death_broadcast_channel_id": b.get("death_broadcast_channel_id"),
+            "battle_report_channel_id": b.get("battle_report_channel_id"),
+            "battle_report_min_guild_players": int(
+                b.get("battle_report_min_guild_players") or 20
+            ),
             "member_change_channel_id": b.get("member_change_channel_id"),
             "regear_reviewer_role_count": len(reviewer_roles),
             "trusted_role_count": len(trusted_roles),

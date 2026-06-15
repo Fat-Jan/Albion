@@ -14,7 +14,7 @@
 - 所有设计决议已收口进 `KOOK机器人实现计划.md` 第十一节，无遗留待定项。
 - 项目 GitHub 仓库地址：`https://github.com/Fat-Jan/Albion.git`，本地 Git remote `origin` 已指向该地址。
 - 当前线上服务：阿里云新加坡 `aliyun_singapore` 上的 `albion-kook.service`，目录 `/opt/albion-kook`，日志 `/var/log/albion-kook/bot.log`；线上继续使用旧 KOOK bot/token。2026-06-15 当前调试策略：本地 `.env` 临时改回旧 `KOOK_TOKEN`，服务器 `albion-kook.service` 已停服，本地跑完再恢复服务器；后续升级服务器时**不要替换服务器上的旧 `KOOK_TOKEN`**。若后续改回独立开发 bot token，本地可不停服务器直接调试。
-- 当前数据库概况（2026-06-15 复查）：`guild_binding=1`、`player_binding=3`、`regear_request=0`、`regear_reviewer_request=0`、`market_price_reference=6234`。旧补装测试记录清理前已备份到 `data/backups/`。
+- 当前数据库概况（2026-06-15 复查）：`guild_binding=1`、`player_binding=3`、`regear_request=0`、`regear_reviewer_request=0`、`market_price_reference=6234`。`guild_binding.battle_report_channel_id` 已迁移，本机当前值为 `8139656704033247`。旧补装测试记录清理前已备份到 `data/backups/`。
 
 ## 已收口的关键决议（2026-06-14）
 
@@ -28,7 +28,7 @@
 - 文档入口：`README.md` 已更新为当前状态；`使用说明书.md` 已新增，覆盖管理员初始化、成员绑定、补装流程、自动任务、估值口径和运维排错。
 - AI 辅助：已按“受控 AI 服务 + 窄白名单只读路由”上线，使用 LongCat/OpenAI 兼容接口（当前模型 `LongCat-2.0-Preview`）。AI 只做 `/战报`、`/助手`、`/补装解释`，不进入绑定审批、补装审批、金额改写、发组/撤组或发放标记链路；普通成员通过 `/助手` 可查本人绑定状态、最近击杀/阵亡、本人补装状态，管理员/补装审核员可查全服补装队列，管理员可查频道配置概况。AI 事实包带 `schema_version/tool`，输出层拦截危险动作声明并脱敏疑似 Token/API Key；AI 回复凡提到时间必须标注口径：服务器/API 时间 UTC、数据库/服务器时间 UTC，或北京时间 UTC+8。
 - 版本号控制：当前版本 `1.0`，代码单一来源是 `bot/version.py`；`bot.main.ping_text()` 使用同一来源，测试见 `tests/test_version.py`。
-- 战报推送：`bot/albion/battle_report.py` 和 `bot/cards/battle_report_cards.py` 已有聚合/卡片测试；自动定时推送、配置列和去重表仍按 `docs/superpowers/specs/2026-06-14-battle-report-design.md` 后续接入，当前不要写成已上线。
+- 战报推送：`bot/albion/battle_report.py`、`bot/cards/battle_report_cards.py`、`bot/tasks/auto.py` 已接入聚合、卡片、北京时间窗口、专属频道推送、本会最小人数阈值和 SQLite 持久去重；`/设置 战报推送频道`、`/设置 战报频道`、`/设置 战报本会最小人数` 已接入。2026-06-15 本机真实 KOOK 发送路径已确认测试战报只推到专属战报频道 `8139656704033247`，没有走统一/击杀频道 `5938739897296829` 或阵亡频道 `4201481428779754`，并写入 `battle_report_seen`；线上 systemd 自动窗口尚未运行验证，不要写成已上线稳定运行。
 
 ## 坑点 / 注意
 
@@ -68,7 +68,7 @@
 | AI 辅助首发 | ✅ 已运行：LongCat 探针通过，`/助手` 和 `/战报` 核心路径实测通过，AI 只读边界有单测 |
 | AI 只读查询增强 + 安全层 | ✅ 已实现：绑定状态、最近击杀/阵亡、补装队列、管理员配置概况，含危险输出拦截和密钥脱敏 |
 | 版本号控制 | ✅ 已实现：当前版本 `1.0`，`/ping` 带版本号，有单测 |
-| 战报聚合/卡片模块 | ✅ 已实现模块与单测；自动推送尚未接入 |
+| 战报聚合/自动推送 | ✅ 已实现模块、单测、战报频道配置、定时推送代码路径和持久去重；本机真实 KOOK 发送路径已确认频道路由和去重，线上自动窗口待观察 |
 | M7 出勤快照 | ⏸ 后置，等用户反馈确认考勤口径 |
 
 ### M3-M6 验证记录（2026-06-14）

@@ -4,6 +4,7 @@ import json
 from khl.card import Card, CardMessage, Element, Module, Types
 
 from bot.albion import items
+from bot.cards.layout import interleave_dividers, kmd_section
 from bot.cards.query_cards import KILLBOARD_URL, battle_scale_line, beijing, fmt, scale_label, value_lines
 
 # 装备图标展示顺序（killboard 布局）
@@ -80,7 +81,7 @@ def _equipment_detail_lines(valuation_result: dict | None) -> list[str]:
     lines = value_lines(valuation_result, equip_limit=10, bag_limit=0)
     if not lines:
         return []
-    return ["", "**装备文字明细**", *lines]
+    return lines
 
 
 def _append_killboard_button(card: Card, event_id) -> None:
@@ -223,18 +224,29 @@ def regear_apply_card(
     valuation_result: dict | None = None,
 ) -> CardMessage:
     """补装审批卡片，发到审批频道。"""
-    lines = [
-        "**补装申请**",
-        f"申请号：`#{regear_id}`",
-        f"申请人：(met){kook_user_id}(met)　角色：`{player_name}`",
-        *_event_summary_lines(event),
-        f"**补装金额 ≈ {_silver(est_value)} 银**（只计算穿戴装备）",
-        "背包物品不计入补装；仅用于死亡详情/损失展示。",
-        *_equipment_detail_lines(valuation_result),
-    ]
+    detail_lines = _equipment_detail_lines(valuation_result)
     pass_val = json.dumps({"act": "regear_approve", "rid": regear_id})
     card = Card(
-        Module.Section(Element.Text("\n".join(lines), Types.Text.KMD)),
+        *interleave_dividers(
+            [
+                kmd_section(
+                    "审核事项",
+                    [
+                        f"申请号：`#{regear_id}`",
+                        f"申请人：(met){kook_user_id}(met)　角色：`{player_name}`",
+                    ],
+                ),
+                kmd_section("死亡事件", _event_summary_lines(event)),
+                kmd_section(
+                    "补装口径",
+                    [
+                        f"补装金额 ≈ {_silver(est_value)} 银（只计算穿戴装备）",
+                        "背包物品不计入补装；仅用于死亡详情/损失展示。",
+                    ],
+                ),
+                kmd_section("装备明细", detail_lines or ["（暂无装备估值明细）"]),
+            ]
+        ),
         Module.ActionGroup(
             Element.Button("通过", pass_val, Types.Click.RETURN_VAL, Types.Theme.SUCCESS),
         ),
@@ -284,25 +296,27 @@ def regear_approved_card(
 ) -> CardMessage:
     """审批通过后的待发放卡片。"""
     rid = regear_row["id"]
-    lines = [
-        "**补装已通过，等待发放**",
+    issue_lines = [
+        "补装已通过，等待发放",
         f"当前状态：`{_STATUS_ZH.get(regear_row.get('status'), '待发放')}`",
         f"申请人：(met){regear_row['kook_user_id']}(met)",
         f"申请号：`#{rid}`　事件：`{regear_row.get('event_id') or '-'}`",
-        f"金额 ≈ `{fmt(regear_row.get('est_value'))}` 银",
+        f"金额 ≈ `{_silver(regear_row.get('est_value'))}` 银",
     ]
     if regear_row.get("created_at"):
-        lines.append(f"申请时间：`{regear_row['created_at']}`")
+        issue_lines.append(f"申请时间：`{regear_row['created_at']}`")
     if regear_row.get("reviewed_at"):
         reviewed_by = regear_row.get("reviewed_by") or "-"
-        lines.append(f"审核时间：`{regear_row['reviewed_at']}`　审核人：(met){reviewed_by}(met)")
+        issue_lines.append(f"审核时间：`{regear_row['reviewed_at']}`　审核人：(met){reviewed_by}(met)")
+    issue_lines.append("发放后请选择实际方式，状态会落库为 `paid`。")
+    sections = [kmd_section("发放事项", issue_lines)]
     if event:
-        lines.extend(["", *_event_summary_lines(event)])
-    lines.extend(_equipment_detail_lines(valuation_result))
-    lines.append("")
-    lines.append("发放后请选择实际方式，状态会落库为 `paid`。")
+        sections.append(kmd_section("死亡事件", _event_summary_lines(event)))
+    detail_lines = _equipment_detail_lines(valuation_result)
+    if detail_lines:
+        sections.append(kmd_section("装备明细", detail_lines))
     card = Card(
-        Module.Section(Element.Text("\n".join(lines), Types.Text.KMD)),
+        *interleave_dividers(sections),
         Module.Context(Element.Text("管理员或补装审核身份组点击有效。", Types.Text.KMD)),
     )
     _append_killboard_button(card, (event or {}).get("EventId") or regear_row.get("event_id"))

@@ -1,6 +1,7 @@
 """自动战报推送卡片。"""
 from khl.card import Card, CardMessage, Element, Module, Types
 
+from bot.cards.layout import interleave_dividers, kmd_section
 from bot.cards.query_cards import beijing, fmt
 
 
@@ -9,18 +10,19 @@ def battle_report_card(report: dict) -> CardMessage:
     guild_name = report.get("guild_name") or "本会"
     started = _time_line(report.get("start_time", ""))
     guild_row = report.get("guild_row") or {}
-    guild_line = (
-        f"本会 `{guild_name}`　{report.get('guild_players', 0)} 人"
-        f"　击杀声望 `{fmt(report.get('guild_kill_fame', 0))}`"
-    )
+    guild_lines = [
+        f"本会 `{guild_name}`　{report.get('guild_players', 0)} 人",
+        f"击杀声望 `{fmt(report.get('guild_kill_fame', 0))}`",
+    ]
     if guild_row.get("kills") or guild_row.get("deaths"):
-        guild_line += f"　击杀/阵亡 {guild_row.get('kills', 0)}/{guild_row.get('deaths', 0)}"
+        guild_lines.append(f"击杀/阵亡 {guild_row.get('kills', 0)}/{guild_row.get('deaths', 0)}")
 
     card = Card(
         Module.Header(f"📯 {guild_name} ZvZ 战报"),
-        Module.Section(
-            Element.Text(
-                "\n".join(
+        *interleave_dividers(
+            [
+                kmd_section(
+                    "战场概况",
                     [
                         f"战役 `{battle_id}`",
                         started,
@@ -29,18 +31,14 @@ def battle_report_card(report: dict) -> CardMessage:
                             f"　击杀 {report.get('total_kills', 0)}"
                             f"　总声望 `{fmt(report.get('total_fame', 0))}`"
                         ),
-                        guild_line,
-                    ]
+                    ],
                 ),
-                Types.Text.KMD,
-            )
+                kmd_section("本会表现", guild_lines),
+                Module.Section(Element.Text(_entity_block("公会战力榜", report.get("top_guilds") or []), Types.Text.KMD)),
+                Module.Section(Element.Text(_entity_block("联盟战力榜", report.get("top_alliances") or []), Types.Text.KMD)),
+                Module.Section(Element.Text(_highlight_block(report.get("player_highlights") or {}), Types.Text.KMD)),
+            ]
         ),
-        Module.Divider(),
-        Module.Section(Element.Text(_entity_block("高参与公会", report.get("top_guilds") or []), Types.Text.KMD)),
-        Module.Divider(),
-        Module.Section(Element.Text(_entity_block("高参与联盟", report.get("top_alliances") or []), Types.Text.KMD)),
-        Module.Divider(),
-        Module.Section(Element.Text(_highlight_block(report.get("player_highlights") or {}), Types.Text.KMD)),
     )
     url = report.get("battle_url")
     if url:
@@ -84,7 +82,7 @@ def _highlight_block(highlights: dict) -> str:
     top_death_fame = highlights.get("top_death_fame")
     return "\n".join(
         [
-            "**本会玩家高光**",
+            "**本会高光**",
             _kills_line("击杀最多", most_kills),
             _fame_line("击杀声望最高", top_kill_fame, "kill_fame"),
             _deaths_line("阵亡最多", most_deaths),

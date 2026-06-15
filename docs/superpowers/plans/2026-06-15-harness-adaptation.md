@@ -1,6 +1,7 @@
 # 轻量 Harness 适配实现计划
 
 > **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [ ]`）语法来跟踪进度。
+> **状态提示（2026-06-15）：** 本文件是 harness 适配历史计划快照，不再作为当前状态真相源。最新状态、测试数量和战报配置进度以项目根 `STATUS.md` 与 `notepad.md` 为准。
 
 **目标：** 为 Albion KOOK 机器人补齐项目级 harness：固定接手入口、统一离线验证门禁、当前状态落点和安全调试边界。
 
@@ -31,7 +32,7 @@
 - 当前离线验证命令：
   - `.venv/bin/python -m unittest discover -s tests -v`
   - `.venv/bin/python -m compileall bot scripts tests`
-- 最近顺序验证结果：75 个单测通过，`compileall bot scripts tests` 通过。
+- 历史顺序验证结果：当时单测和 `compileall bot scripts tests` 通过。当前测试数量以后续 `STATUS.md` 记录为准。
 - 安全边界：`.env` 内有真实 KOOK/AI 密钥，执行计划时不要读取、打印、复制或提交 `.env` 内容。
 - 工作区已有业务改动。实现 harness 时只碰本计划列出的文件，避免混入业务修复。
 
@@ -173,7 +174,7 @@ scripts/check.sh
 ```text
 == unittest ==
 ...
-Ran 75 tests
+Ran <实际测试数量> tests
 OK
 == compileall ==
 ...
@@ -214,7 +215,7 @@ git commit -m "chore: add offline check script"
 - M0-M6 已实现并线上运行。
 - 当前版本：`1.0`，来源 `bot/version.py`。
 - AI 辅助首发和只读查询增强已实现，AI 不参与审批、发组、撤组、改金额或发放标记。
-- ZvZ 战报聚合/卡片模块已有单测，自动推送尚未接入。
+- ZvZ 战报聚合/卡片模块、专属频道配置、最小本会人数阈值、持久去重表和自动推送代码路径已有单测覆盖；本机真实 KOOK 发送路径已确认专属频道路由正确，线上 systemd 自动窗口尚未运行验证。
 - M7 出勤快照后置，等待真实用户反馈考勤口径。
 
 ## Harness
@@ -226,13 +227,13 @@ git commit -m "chore: add offline check script"
 
 ## Next
 
-1. 继续 KOOK 端活测和 AI 只读查询打磨。
+1. KOOK 端活测自动战报推送：确认专属战报频道、北京时间窗口、发送成功后去重。
 2. 等真实用户反馈后再决定 M7 出勤口径。
-3. 自动战报推送按 `docs/superpowers/specs/2026-06-14-battle-report-design.md` 另立任务接入。
+3. 继续 AI 只读查询打磨。
 
 ## Verification
 
-- 2026-06-15：`.venv/bin/python -m unittest discover -s tests -v` 通过，75 个测试。
+- 2026-06-15：`.venv/bin/python -m unittest discover -s tests -v` 通过，测试数量以实际输出为准。
 - 2026-06-15：`.venv/bin/python -m compileall bot scripts tests` 通过。
 
 ## Operational Notes
@@ -360,7 +361,7 @@ git commit -m "docs: record harness handoff context"
 scripts/check.sh
 ```
 
-预期：75 个测试通过，`compileall` 通过，最终打印 `== ok ==`。
+预期：当前全部测试通过，`compileall` 通过，最终打印 `== ok ==`。
 
 - [ ] **步骤 2：确认没有提交密钥文件**
 
@@ -393,7 +394,7 @@ git show --stat --oneline --decorate --max-count=5
 把 `STATUS.md` 的 `## Verification` 更新为最新运行结果。例如：
 
 ```markdown
-- 2026-06-15：`scripts/check.sh` 通过，75 个单元测试通过，`compileall bot scripts tests` 通过。
+- 2026-06-15：`scripts/check.sh` 通过，单元测试和 `compileall bot scripts tests` 通过。（历史快照；当前以项目根 `STATUS.md` 为准。）
 ```
 
 - [ ] **步骤 5：Commit**

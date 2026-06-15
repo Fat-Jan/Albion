@@ -207,6 +207,8 @@ SETTING_USAGE = (
     "`/设置 播报频道 #频道`\n"
     "`/设置 击杀播报频道 #频道`\n"
     "`/设置 阵亡播报频道 #频道`\n"
+    "`/设置 战报推送频道 #频道`\n"
+    "`/设置 战报本会最小人数 <人数>`\n"
     "`/设置 成员变动频道 #频道`\n"
     "`/设置 可信身份组 @身份组[ @身份组...]`\n"
     "`/设置 大额阈值 <fame数字>`"
@@ -300,6 +302,21 @@ def register(bot: Bot, gi: GameInfo) -> None:
                 return
             repo.set_setting(kgid, "death_broadcast_channel_id", cid)
             await msg.reply(f"✅ 阵亡播报频道已设为 (chn){cid}(chn)")
+
+        elif key in ("战报推送频道", "战报频道"):
+            cid = await _resolve_channel(msg.ctx.guild, value)
+            if not cid:
+                await msg.reply(f"找不到频道「{value}」。可 #频道、给 ID，或确认名字完全一致。")
+                return
+            repo.set_setting(kgid, "battle_report_channel_id", cid)
+            await msg.reply(f"✅ 战报推送频道已设为 (chn){cid}(chn)")
+
+        elif key == "战报本会最小人数":
+            if not value.isdigit() or int(value) <= 0:
+                await msg.reply("战报本会最小人数需为正整数，例：/设置 战报本会最小人数 20")
+                return
+            repo.set_setting(kgid, "battle_report_min_guild_players", int(value))
+            await msg.reply(f"✅ 战报本会最小人数已设为 {int(value)} 人。")
 
         elif key == "成员变动频道":
             cid = await _resolve_channel(msg.ctx.guild, value)

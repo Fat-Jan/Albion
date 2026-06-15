@@ -5,6 +5,7 @@ from khl.card import Card, CardMessage, Element, Module, Types
 
 from bot.albion import items
 from bot.albion import valuation
+from bot.cards.layout import interleave_dividers, kmd_section
 
 
 def beijing(ts_iso: str) -> str:
@@ -129,17 +130,32 @@ def profile_card(p: dict, kills: int, deaths: int) -> CardMessage:
     pve = total_at(ls, "PvE", "Total")
     gather = total_at(ls, "Gathering", "All", "Total")
     craft = total_at(ls, "Crafting", "Total")
-    text = (
-        f"**{p.get('Name')}**　公会：`{p.get('GuildName') or '无'}`"
-        + (f"　联盟：`{p.get('AllianceName')}`" if p.get("AllianceName") else "")
-        + "\n"
-        f"击杀声望 `{fmt(p.get('KillFame'))}`　死亡声望 `{fmt(p.get('DeathFame'))}`　"
-        f"KD `{p.get('FameRatio')}`\n"
-        f"PvE 声望 `{fmt(pve)}`　采集声望 `{fmt(gather)}`\n"
-        f"制造声望 `{fmt(craft)}`\n"
-        f"最近击杀 `{kills}`　最近死亡 `{deaths}`"
+    identity = [f"角色：`{p.get('Name')}`", f"公会：`{p.get('GuildName') or '无'}`"]
+    if p.get("AllianceName"):
+        identity.append(f"联盟：`{p.get('AllianceName')}`")
+    card = Card(
+        *interleave_dividers(
+            [
+                kmd_section("身份", identity),
+                kmd_section(
+                    "战斗",
+                    [
+                        f"击杀声望 `{fmt(p.get('KillFame'))}`　死亡声望 `{fmt(p.get('DeathFame'))}`",
+                        f"KD `{p.get('FameRatio')}`",
+                    ],
+                ),
+                kmd_section(
+                    "成长",
+                    [
+                        f"PvE 声望 `{fmt(pve)}`　采集声望 `{fmt(gather)}`",
+                        f"制造声望 `{fmt(craft)}`",
+                    ],
+                ),
+                kmd_section("近期", [f"最近击杀 `{kills}`　最近死亡 `{deaths}`"]),
+            ]
+        )
     )
-    return CardMessage(Card(Module.Section(Element.Text(text, Types.Text.KMD))))
+    return CardMessage(card)
 
 
 def recent_fights_card(player_name: str, kills: list, deaths: list, n: int = 10) -> CardMessage:
@@ -202,15 +218,25 @@ def valuation_card(player_name: str, event: dict, result: dict) -> CardMessage:
     if scale:
         loc_line += f"　{scale}"
     sums = valuation.summary(result)
-    lines = [
-        f"**{player_name}** 最近一次死亡估值",
-        loc_line,
-        f"装备估值 ≈ `{fmt(sums['equipment_total'])}` 银　背包估值 ≈ `{fmt(sums['inventory_total'])}` 银",
-        f"总损失 ≈ `{fmt(sums['loss_total'])}` 银（补装默认只按装备估值）",
-        "",
-    ]
-    lines.extend(value_lines(result))
-    card = Card(Module.Section(Element.Text("\n".join(lines), Types.Text.KMD)))
+    detail_lines = value_lines(result) or ["（暂无可估值明细）"]
+    card = Card(
+        *interleave_dividers(
+            [
+                kmd_section("死亡概况", [f"角色：`{player_name}`", loc_line]),
+                kmd_section(
+                    "损失估值",
+                    [
+                        (
+                            f"装备估值 ≈ `{fmt(sums['equipment_total'])}` 银　"
+                            f"背包估值 ≈ `{fmt(sums['inventory_total'])}` 银"
+                        ),
+                        f"总损失 ≈ `{fmt(sums['loss_total'])}` 银（补装默认只按装备估值）",
+                    ],
+                ),
+                kmd_section("明细", detail_lines),
+            ]
+        )
+    )
     eid = event.get("EventId")
     if eid:
         card.append(

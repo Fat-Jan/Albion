@@ -2,6 +2,8 @@
 
 日期：2026-06-14
 
+实施状态（2026-06-15）：战报聚合模块、卡片模板、`battle_report_channel_id`、`battle_report_min_guild_players`、`battle_report_seen`、`/设置 战报推送频道`、`/设置 战报本会最小人数` 和 `auto.py` 定时推送代码路径已接入；本机真实 KOOK 发送路径已确认专属频道路由正确，线上 systemd 自动窗口尚未运行验证。
+
 ## 背景
 
 当前机器人已经有死亡播报和手动 `/战役` 查询。死亡播报关注单条击杀/阵亡事件；`/战役` 关注用户主动查询最近战役。新增战报推送要解决的是：当绑定公会参与大型 ZvZ 战役时，自动向独立频道推送一张聚合战报，便于成员在战后快速看到本会参与情况。
@@ -63,17 +65,18 @@ GET https://gameinfo-sgp.albiononline.com/api/gameinfo/events/battle/{battle_id}
 
 在 `guild_binding` 增加两个设置：
 
-- `battle_report_channel_id TEXT`
-- `battle_report_min_guild_players INTEGER DEFAULT 20`
+- `battle_report_channel_id TEXT`（已接入）
+- `battle_report_min_guild_players INTEGER DEFAULT 20`（已接入）
 
 新增管理命令：
 
 ```text
+/设置 战报推送频道 #频道
 /设置 战报频道 #频道
 /设置 战报本会最小人数 20
 ```
 
-默认本会最小参战人数为 `20`。频道未设置时任务直接跳过，不请求外部接口。
+`/设置 战报频道` 是兼容别名。默认本会最小参战人数为 `20`。频道未设置时任务直接跳过，不请求外部接口。
 
 ## 去重表
 
@@ -123,7 +126,7 @@ CREATE TABLE IF NOT EXISTS battle_report_seen (
 
 `bot/commands/admin.py`
 
-- 新增 `/设置 战报频道`
+- 新增 `/设置 战报推送频道`，兼容 `/设置 战报频道`
 - 新增 `/设置 战报本会最小人数`
 - 更新设置帮助文案
 
@@ -188,10 +191,10 @@ AlbionBB 链接格式已用 live probe 确认：`https://east.albionbb.com/battl
 
 ## 实施顺序
 
-1. 新增 DB 列和 seen 表，补 repo 方法。
-2. 新增 AlbionBB 战报聚合模块和单元测试。
-3. 新增战报卡片和卡片测试。
-4. 新增管理设置命令。
-5. 接入 `auto.py` 定时任务。
-6. 更新 README、使用说明书、notepad。
-7. 运行测试、编译、live probe，并重启 bot。
+1. 新增 DB 列和 seen 表，补 repo 方法：已完成。
+2. 新增 AlbionBB 战报聚合模块和单元测试：已完成。
+3. 新增战报卡片和卡片测试：已完成。
+4. 新增管理设置命令：已完成。
+5. 接入 `auto.py` 定时任务：已完成。
+6. 更新 README、使用说明书、notepad：已完成。
+7. 运行测试、编译：已完成；live probe 和重启 bot 按具体上线任务执行。

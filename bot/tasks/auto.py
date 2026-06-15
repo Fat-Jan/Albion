@@ -6,17 +6,22 @@
   注：官方 /events?guildId= 只回本会"击杀"不含"阵亡"，故改走全局 feed 双向筛
   （亚服全局约 36 事件/分钟，多页足以覆盖；ZvZ 突发超覆盖会丢少量，已记日志）。
 - 退会复查：每日比对公会成员，已绑定但退会的撤身份组 + 清绑定，并优先通知成员变动频道。
+- ZvZ 战报：按专属战报频道配置，在北京时间 14:30-次日 05:00 拉取 AlbionBB
+  候选战役，官方详情聚合后推送，并用 SQLite 持久去重。
 """
 import logging
 from collections import deque
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
+from typing import Any
 
 from khl import Bot
 
+from bot.albion.battle_report import build_battle_report
 from bot.albion import valuation
 from bot.albion.gameinfo import GameInfo
 from bot.albion.market import Market
 from bot.albion import price_reference
+from bot.cards.battle_report_cards import battle_report_card
 from bot.cards.broadcast_cards import kill_card
 from bot.store import repo
 
@@ -30,6 +35,10 @@ BROADCAST_BUSY_START = time(20, 0)
 BROADCAST_BUSY_END = time(0, 30)
 FEED_PAGES = 4  # 每轮拉的全局 feed 页数（51/页），覆盖轮询间隔内的事件量
 MAX_BROADCAST_PER_TICK = 15  # 控频，避免刷爆 KOOK 配额
+BATTLE_REPORT_INTERVAL_MIN = 15
+BATTLE_REPORT_MIN_PLAYERS = 20
+BATTLE_REPORT_START = time(14, 30)
+BATTLE_REPORT_END = time(5, 0)
 
 # 去重状态（内存，全局按 EventId）
 _seen: set = set()
@@ -103,6 +112,99 @@ def _should_run_death_broadcast(
         return True
     elapsed = (now - last_run).total_seconds()
     return elapsed + BROADCAST_INTERVAL_TOLERANCE_SEC >= _death_broadcast_interval_seconds(now)
+
+
+def _should_run_battle_report(now: datetime | None = None) -> bool:
+    """战报只在北京 ZvZ 活跃时段运行；测试传入 naive UTC 时间。"""
+    current = (now or datetime.utcnow()) + timedelta(hours=8)
+    t = current.time()
+    return t >= BATTLE_REPORT_START or t < BATTLE_REPORT_END
+
+
+def _battle_candidate_id(row: dict[str, Any]) -> str:
+    for key in ("albionId", "id", "Id", "battleId", "BattleId"):
+        value = row.get(key)
+        if value:
+            return str(value)
+    return ""
+
+
+def _candidate_mentions_guild(row: dict[str, Any], guild_name: str) -> bool:
+    target = str(guild_name or "").casefold()
+    if not target:
+        return False
+    guilds = row.get("guilds") or row.get("Guilds") or []
+    if isinstance(guilds, dict):
+        guilds = guilds.values()
+    for guild in guilds:
+        if not isinstance(guild, dict):
+            continue
+        name = guild.get("name") or guild.get("Name")
+        if str(name or "").casefold() == target:
+            return True
+    return False
+
+
+def _configured_battle_report_bindings() -> list[dict]:
+    return [
+        gb
+        for gb in repo.all_guild_bindings()
+        if gb.get("battle_report_channel_id") and gb.get("albion_guild_name")
+    ]
+
+
+async def _run_battle_report_tick(
+    bot: Bot,
+    gi: GameInfo,
+    bb_client,
+    *,
+    now: datetime | None = None,
+) -> None:
+    if not _should_run_battle_report(now):
+        return
+    bindings = _configured_battle_report_bindings()
+    if not bindings:
+        return
+
+    try:
+        candidates = await bb_client.albionbb_get(
+            "/battles", params={"minPlayers": BATTLE_REPORT_MIN_PLAYERS, "page": 1}
+        )
+    except Exception as exc:
+        log.warning("拉取 AlbionBB 战役列表失败: %s", exc)
+        return
+    if not isinstance(candidates, list):
+        log.warning("AlbionBB 战役列表格式异常: %s", type(candidates).__name__)
+        return
+
+    for gb in bindings:
+        kgid = gb["kook_guild_id"]
+        guild_name = gb["albion_guild_name"]
+        min_guild_players = int(
+            gb.get("battle_report_min_guild_players") or BATTLE_REPORT_MIN_PLAYERS
+        )
+        for row in candidates:
+            if not isinstance(row, dict) or not _candidate_mentions_guild(row, guild_name):
+                continue
+            battle_id = _battle_candidate_id(row)
+            if not battle_id or repo.has_seen_battle_report(kgid, battle_id):
+                continue
+            try:
+                detail = await gi.battle(battle_id)
+                events = await gi.battle_events(battle_id)
+                report = build_battle_report(detail, events, guild_name=guild_name)
+            except Exception as exc:
+                log.warning("生成战报失败 battle=%s guild=%s: %s", battle_id, guild_name, exc)
+                continue
+            if report.get("guild_players", 0) < min_guild_players:
+                continue
+            try:
+                channel = await bot.client.fetch_public_channel(gb["battle_report_channel_id"])
+                await channel.send(battle_report_card(report))
+            except Exception as exc:
+                log.warning("推送战报失败 battle=%s guild=%s: %s", battle_id, guild_name, exc)
+                continue
+            repo.mark_battle_report_seen(kgid, battle_id)
 
 
 def register(bot: Bot, gi: GameInfo, mk: Market) -> None:
@@ -222,3 +324,7 @@ def register(bot: Bot, gi: GameInfo, mk: Market) -> None:
             log.warning("武器/副手低价参考刷新失败: %s", exc)
         finally:
             _price_ref_refreshing = False
+
+    @bot.task.add_interval(minutes=BATTLE_REPORT_INTERVAL_MIN)
+    async def battle_report():
+        await _run_battle_report_tick(bot, gi, gi.c)

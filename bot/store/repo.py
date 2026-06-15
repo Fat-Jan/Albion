@@ -15,6 +15,8 @@ SETTING_FIELDS = {
     "broadcast_channel_id",
     "kill_broadcast_channel_id",
     "death_broadcast_channel_id",
+    "battle_report_channel_id",
+    "battle_report_min_guild_players",
     "member_change_channel_id",
     "regear_reviewer_role_ids",
     "trusted_role_ids",
@@ -103,6 +105,38 @@ def set_setting(kook_guild_id: str, field: str, value) -> bool:
         )
         conn.commit()
         return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+# --- 自动战报去重 ---
+
+def has_seen_battle_report(kook_guild_id: str, battle_id: str) -> bool:
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            """
+            SELECT 1 FROM battle_report_seen
+            WHERE kook_guild_id=? AND battle_id=?
+            """,
+            (kook_guild_id, str(battle_id)),
+        ).fetchone()
+        return row is not None
+    finally:
+        conn.close()
+
+
+def mark_battle_report_seen(kook_guild_id: str, battle_id: str) -> None:
+    conn = get_conn()
+    try:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO battle_report_seen (kook_guild_id, battle_id)
+            VALUES (?, ?)
+            """,
+            (kook_guild_id, str(battle_id)),
+        )
+        conn.commit()
     finally:
         conn.close()
 
