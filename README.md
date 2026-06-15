@@ -8,15 +8,16 @@ GitHub 仓库：<https://github.com/Fat-Jan/Albion.git>
 
 ## 当前状态
 
-- M0-M6 已实现并在线运行，入口为 `.venv/bin/python -m bot.main`。
+- M0-M6 已实现并在线运行，线上入口为阿里云新加坡服务器的 `albion-kook.service`。
 - 当前项目版本为 `1.0`，单一来源为 `bot/version.py`；`/ping` 返回 `pong v1.0`。
-- 当前只保留一个 bot 进程；2026-06-15 复查 PID 为 `41098`。
+- 2026-06-15 当前本地调试临时使用线上旧 `KOOK_TOKEN`，因此线上 `albion-kook.service` 已停服，避免 WebSocket 抢连和重复处理消息。
 - SQLite 已保存公会绑定、玩家绑定、武器/副手价格参考库。
 - 旧补装测试记录已清空，清理前数据库备份在 `data/backups/`（不提交到 Git）。
 - 补装金额只计算穿戴装备；背包物品只在详情和总损失里展示，不计入补装。
 - 武器/副手低价参考库覆盖 T4-T8、附魔 `@1`-`@4`、品质 1-5，每 3 天自动刷新。
 - ZvZ 战报聚合和卡片模块已有单元测试；自动战报推送仍按 `docs/superpowers/specs/2026-06-14-battle-report-design.md` 后续接入。
 - 下一阶段先继续 KOOK 端活测和 AI 只读查询打磨；M7 出勤快照后置，等真实用户反馈确认考勤口径后再做。
+- 项目采用轻量 harness：接手入口见 `AGENTS.md`，短状态见 `STATUS.md`，离线门禁见 `scripts/check.sh`。
 
 ## 功能概览
 
@@ -55,6 +56,8 @@ GitHub 仓库：<https://github.com/Fat-Jan/Albion.git>
 - `/补装`：绑定成员查看最近死亡，点「详情」或「选这个补装」。
 - `/补装状态`：成员查看自己的最近补装进度。
 - `/补装 待处理|待发放|列表`：管理员或补装审核员查看补装队列。
+- `/补装 拒绝 #申请号 理由文本`：管理员或补装审核员用自定义理由拒绝补装。
+- `/补装 发放 #申请号 银币|装备|物品 [备注]`：管理员或补装审核员按发放方式标记补装完成。
 - `/补装解释 <申请号>`：AI 基于事实包解释补装金额和异常点，不参与审批。
 
 状态流转：
@@ -65,6 +68,7 @@ pending（待审批） -> rejected（已拒绝）
 ```
 
 审批通过前会按当前市场数据刷新补装金额。已落库的旧记录不会被静默重算。
+审核频道和发放频道会显示死亡摘要、装备文字明细和官方击杀板链接；拒绝会记录原因并通知申请人，发放会记录处理时间和发放方式。
 
 推荐频道结构：
 
@@ -151,6 +155,33 @@ nohup .venv/bin/python -m bot.main > bot.log 2>&1 &
 
 ## 运维命令
 
+线上部署在阿里云新加坡服务器 `/opt/albion-kook`，由 systemd 管理：
+
+```bash
+systemctl status albion-kook.service --no-pager --lines=80
+systemctl stop albion-kook.service
+systemctl start albion-kook.service
+systemctl restart albion-kook.service
+journalctl -u albion-kook.service -n 100 --no-pager
+tail -80 /var/log/albion-kook/bot.log
+```
+
+当前本地 `.env` 临时使用线上旧 `KOOK_TOKEN` 调试，必须先停止服务器服务，避免同一个 token 抢连接：
+
+```bash
+systemctl stop albion-kook.service
+.venv/bin/python -m bot.main
+systemctl start albion-kook.service
+```
+
+如果本地 `.env` 改回独立开发 bot token，则可直接启动本地机器人调试，不需要停止线上服务：
+
+```bash
+.venv/bin/python -m bot.main
+```
+
+启动日志会打印安全诊断 `bot_id/token_fp/token_source`，用来确认实际生效 token；升级服务器代码时不要替换服务器上的旧 `KOOK_TOKEN`。
+
 查看 bot 进程：
 
 ```bash
@@ -193,10 +224,20 @@ sqlite3 data/bot.db "delete from regear_request; delete from regear_reviewer_req
 
 ## 测试
 
+推荐统一入口：
+
+```bash
+scripts/check.sh
+```
+
+等价命令：
+
 ```bash
 .venv/bin/python -m unittest discover -s tests -v
 .venv/bin/python -m compileall bot scripts tests
 ```
+
+这只是离线门禁，不会启动 KOOK bot。涉及真实 KOOK 交互、systemd、数据库清理或外部 API 实测时，需要另行记录活测证据。
 
 ## 数据口径
 

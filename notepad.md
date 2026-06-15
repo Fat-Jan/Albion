@@ -6,13 +6,14 @@
 
 - 项目是面向单个亚服公会的 KOOK 机器人，两条主线：管理员绑公会 + 玩家自助绑角色（名字匹配+审批），绑定后查询免输名字。
 - 当前进度：**M0-M6 已实现并线上运行**，数据/逻辑对真实 API 验过；补装、播报、查询已在真实 bot 进程中跑。当前项目版本 `1.0`（`bot/version.py`，`/ping` 返回 `pong v1.0`）。AI 辅助首发已启用（/助手、/战报、/补装解释），本轮继续推进自然语言只读查询扩展 + AI 安全与质量层。M7 出勤后置，等真实用户反馈明确考勤口径后再做。
+- 项目已采用轻量 harness：后续接手先读 `AGENTS.md` 和 `STATUS.md`；离线门禁统一跑 `scripts/check.sh`。离线通过不等于 KOOK 真实交互已活测，涉及线上/真实 bot 的结论必须补充活测证据。
 - 测试用 KOOK 服务器可换（当前 id `4676167053713576`，bot 身份 Jianguomao#7691）；绑定一律按运行时 guild_id 走，代码不写死服务器。
 - 测试参考角色：armskey/muaowo（都不在 Mika）；需要 Mika 成员就从 `/guilds/{id}/members` 挑活跃的。
 - 实际运行环境是 **Python 3.13.12**（计划写 3.11+），khl.py 0.3.17 / httpx 0.28.1 / python-dotenv，3.13 兼容无碍；venv 在 `.venv/`。
 - 技术栈定死：Python + khl.py（WebSocket）+ httpx + SQLite；数据源走亚服三件套（gameinfo-sgp / east AODP / albionbb-asia），别混区。
 - 所有设计决议已收口进 `KOOK机器人实现计划.md` 第十一节，无遗留待定项。
 - 项目 GitHub 仓库地址：`https://github.com/Fat-Jan/Albion.git`，本地 Git remote `origin` 已指向该地址。
-- 当前线上进程：`.venv/bin/python -m bot.main`，日志写 `bot.log`；2026-06-15 复查当前 PID `41098`。
+- 当前线上服务：阿里云新加坡 `aliyun_singapore` 上的 `albion-kook.service`，目录 `/opt/albion-kook`，日志 `/var/log/albion-kook/bot.log`；线上继续使用旧 KOOK bot/token。2026-06-15 当前调试策略：本地 `.env` 临时改回旧 `KOOK_TOKEN`，服务器 `albion-kook.service` 已停服，本地跑完再恢复服务器；后续升级服务器时**不要替换服务器上的旧 `KOOK_TOKEN`**。若后续改回独立开发 bot token，本地可不停服务器直接调试。
 - 当前数据库概况（2026-06-15 复查）：`guild_binding=1`、`player_binding=3`、`regear_request=0`、`regear_reviewer_request=0`、`market_price_reference=6234`。旧补装测试记录清理前已备份到 `data/backups/`。
 
 ## 已收口的关键决议（2026-06-14）
@@ -50,6 +51,7 @@
 - **遭遇规模分层预估**：`numberOfParticipants` 是"补刀人数"（常=4，会把 ZvZ 误标小团，已弃用）。改用 `GroupMembers`(=主角所在小队，恒含主角本人) 做队伍口径 `scale_label`（单人1/小团2-7/团战8-20/ZvZ20+，免 API，用于列表/播报/估值）。详情卡用 `battle_scale_line`：查 `/battles/{id}` 整场人数（小规模≤6/小团≤30/团战≤80/ZvZ>80）显示「你队N人 整场M人 类别」+ 尖刀小队推测。
 - **尖刀/炸弹小队启发式**（仅详情卡）：你队 `GroupMembers≤10` 且 整场 `players≥40` → 标「⚡尖刀/炸弹小队?(推测)」。`gi.battle(id)` 查询，失败回退队伍口径。
 - **KOOK 卡片图片坑**：`Module.ImageGroup` 内 `Element.Image` 不能带 `size`（带 `sm` 会 40000 校验失败），用默认即可；外链图（官方渲染 `render.albiononline.com/v1/item/{id}.png?quality=N`）KOOK 服务端会抓取并缓存到自有 CDN，无需本地中转。`items.render_url()` 是图床方案的唯一改动点。
+- **同 token 调试坑**：服务器 systemd 和本地开发不能同时使用同一个 `KOOK_TOKEN` 跑 bot，否则会抢 KOOK WebSocket/重复处理消息。2026-06-15 当前本地 `.env` 已临时改回线上旧 token，因此服务器必须保持 `systemctl stop albion-kook.service`；调完本地后再 `systemctl start albion-kook.service`。如果本地改回独立开发 bot token，才可以不停线上服务直接调试。启动日志会打印安全诊断 `bot_id/token_fp/token_source`，不要打印 token 原文。
 
 ## 进度
 
