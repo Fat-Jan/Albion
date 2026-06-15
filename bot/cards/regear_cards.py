@@ -5,7 +5,15 @@ from khl.card import Card, CardMessage, Element, Module, Types
 
 from bot.albion import items
 from bot.cards.layout import interleave_dividers, kmd_section
-from bot.cards.query_cards import KILLBOARD_URL, battle_scale_line, beijing, fmt, scale_label, value_lines
+from bot.cards.query_cards import (
+    KILLBOARD_URL,
+    battle_scale_line,
+    beijing,
+    beijing_datetime,
+    fmt,
+    scale_label,
+    value_lines,
+)
 
 # 装备图标展示顺序（killboard 布局）
 _EQUIP_SLOTS = ["MainHand", "OffHand", "Head", "Armor", "Shoes", "Cape", "Bag", "Mount", "Potion"]
@@ -14,6 +22,11 @@ _STATUS_ZH = {
     "approved": "待发放",
     "rejected": "已拒绝",
     "paid": "已发放",
+}
+_REVIEWER_STATUS_ZH = {
+    "pending": "待审批",
+    "approved": "已通过",
+    "rejected": "已拒绝",
 }
 REGEAR_REJECT_REASONS = ("非补装范围", "重复申请", "装备/金额异常", "证据不足")
 PAYOUT_METHOD_LABELS = {
@@ -78,7 +91,7 @@ def _event_summary_lines(event: dict) -> list[str]:
 def _equipment_detail_lines(valuation_result: dict | None) -> list[str]:
     if not valuation_result:
         return []
-    lines = value_lines(valuation_result, equip_limit=10, bag_limit=0)
+    lines = value_lines(valuation_result, equip_limit=20, bag_limit=0)
     if not lines:
         return []
     return lines
@@ -87,10 +100,11 @@ def _equipment_detail_lines(valuation_result: dict | None) -> list[str]:
 def _append_killboard_button(card: Card, event_id) -> None:
     if not event_id:
         return
+    label = f"查看官方击杀板 #{event_id}"
     card.append(
         Module.ActionGroup(
             Element.Button(
-                "查看官方击杀板",
+                label,
                 KILLBOARD_URL.format(eid=event_id),
                 Types.Click.LINK,
                 Types.Theme.SECONDARY,
@@ -202,7 +216,10 @@ def death_detail_card(
     card.append(
         Module.ActionGroup(
             Element.Button(
-                "查看官方击杀板", KILLBOARD_URL.format(eid=eid), Types.Click.LINK, Types.Theme.SECONDARY
+                f"查看官方击杀板 #{eid}",
+                KILLBOARD_URL.format(eid=eid),
+                Types.Click.LINK,
+                Types.Theme.SECONDARY,
             ),
             Element.Button(
                 "选这个补装",
@@ -233,6 +250,7 @@ def regear_apply_card(
                     "审核事项",
                     [
                         f"申请号：`#{regear_id}`",
+                        f"当前状态：`待审批`",
                         f"申请人：(met){kook_user_id}(met)　角色：`{player_name}`",
                     ],
                 ),
@@ -277,7 +295,8 @@ def regear_reviewer_apply_card(request_id: int, kook_user_id: str) -> CardMessag
     card = Card(
         Module.Section(
             Element.Text(
-                f"**补装审核身份申请**\n申请人：(met){kook_user_id}(met)\n"
+                f"**补装审核身份申请**\n申请号：`#{request_id}`\n"
+                f"当前状态：`待审批`\n申请人：(met){kook_user_id}(met)\n"
                 "通过后会自动授予已配置的补装审核身份组。",
                 Types.Text.KMD,
             )
@@ -289,6 +308,43 @@ def regear_reviewer_apply_card(request_id: int, kook_user_id: str) -> CardMessag
         Module.Context(Element.Text("只有管理员可以审批补装审核身份。", Types.Text.KMD)),
     )
     return CardMessage(card)
+
+
+def regear_reviewer_result_card(req: dict, *, warnings: list[str] | None = None) -> CardMessage:
+    """补装审核身份申请结果卡：通知申请人，也用于覆盖原审批卡。"""
+    rid = req.get("id") or "?"
+    user_id = req.get("kook_user_id") or "?"
+    status = req.get("status") or "pending"
+    status_zh = _REVIEWER_STATUS_ZH.get(status, status)
+    if status == "approved":
+        title = f"✅ 补装审核身份申请 `#{rid}` 已通过"
+        theme = Types.Theme.SUCCESS
+        result_line = "申请已通过，已尝试发放配置的补装审核身份组。"
+    elif status == "rejected":
+        title = f"❌ 补装审核身份申请 `#{rid}` 已拒绝"
+        theme = Types.Theme.DANGER
+        result_line = "未发放补装审核身份组。"
+    else:
+        title = f"补装审核身份申请 `#{rid}` 状态更新"
+        theme = Types.Theme.INFO
+        result_line = "请等待管理员处理。"
+    lines = [
+        title,
+        f"申请号：`#{rid}`",
+        f"申请人：(met){user_id}(met)",
+        f"当前状态：`{status_zh}`",
+    ]
+    if req.get("created_at"):
+        lines.append(f"申请时间：`{beijing_datetime(req['created_at'])}`")
+    if req.get("reviewed_at"):
+        reviewer = req.get("reviewed_by") or "-"
+        lines.append(
+            f"审核时间：`{beijing_datetime(req['reviewed_at'])}`　审核人：(met){reviewer}(met)"
+        )
+    lines.append(result_line)
+    if warnings:
+        lines.append("⚠️ " + "；".join(warnings))
+    return CardMessage(Card(Module.Section(Element.Text("\n".join(lines), Types.Text.KMD)), theme=theme))
 
 
 def regear_approved_card(
@@ -304,10 +360,12 @@ def regear_approved_card(
         f"金额 ≈ `{_silver(regear_row.get('est_value'))}` 银",
     ]
     if regear_row.get("created_at"):
-        issue_lines.append(f"申请时间：`{regear_row['created_at']}`")
+        issue_lines.append(f"申请时间：`{beijing_datetime(regear_row['created_at'])}`")
     if regear_row.get("reviewed_at"):
         reviewed_by = regear_row.get("reviewed_by") or "-"
-        issue_lines.append(f"审核时间：`{regear_row['reviewed_at']}`　审核人：(met){reviewed_by}(met)")
+        issue_lines.append(
+            f"审核时间：`{beijing_datetime(regear_row['reviewed_at'])}`　审核人：(met){reviewed_by}(met)"
+        )
     issue_lines.append("发放后请选择实际方式，状态会落库为 `paid`。")
     sections = [kmd_section("发放事项", issue_lines)]
     if event:
@@ -334,6 +392,63 @@ def regear_approved_card(
         )
     )
     card.append(Module.Context(Element.Text(f"带备注发放：`/补装 发放 #{rid} 银币|装备|物品 备注`", Types.Text.KMD)))
+    return CardMessage(card)
+
+
+def regear_notice_card(
+    regear_row: dict, event: dict | None = None, valuation_result: dict | None = None
+) -> CardMessage:
+    """补装结果通知卡：给通知频道和处理频道复用。"""
+    rid = regear_row.get("id") or "?"
+    status = regear_row.get("status")
+    status_zh = _STATUS_ZH.get(status, status or "?")
+    if status == "rejected":
+        title = f"❌ 补装申请 `#{rid}` 已拒绝"
+        theme = Types.Theme.DANGER
+    elif status == "paid":
+        title = f"✅ 补装申请 `#{rid}` 已发放"
+        theme = Types.Theme.SUCCESS
+    elif status == "approved":
+        title = f"✅ 补装申请 `#{rid}` 已通过"
+        theme = Types.Theme.SUCCESS
+    else:
+        title = f"补装申请 `#{rid}` 状态更新"
+        theme = Types.Theme.INFO
+
+    issue_lines = [
+        title,
+        f"申请号：`#{rid}`",
+        f"申请人：(met){regear_row.get('kook_user_id') or '?'}(met)",
+        f"当前状态：`{status_zh}`",
+        f"事件：`{regear_row.get('event_id') or '-'}`",
+        f"补装金额 ≈ `{_silver(regear_row.get('est_value'))}` 银",
+    ]
+    if regear_row.get("created_at"):
+        issue_lines.append(f"申请时间：`{beijing_datetime(regear_row['created_at'])}`")
+    if regear_row.get("reviewed_at"):
+        reviewer = regear_row.get("reviewed_by") or "-"
+        issue_lines.append(
+            f"审核时间：`{beijing_datetime(regear_row['reviewed_at'])}`　审核人：(met){reviewer}(met)"
+        )
+    if status == "rejected":
+        issue_lines.append(f"原因：`{regear_row.get('reject_reason') or '未填写'}`")
+    if status == "paid":
+        issue_lines.append(
+            f"发放时间：`{beijing_datetime(regear_row.get('paid_at')) or '未知'}`　"
+            f"发放人：(met){regear_row.get('paid_by') or '-'}(met)"
+        )
+        issue_lines.append(f"发放方式：`{PAYOUT_METHOD_LABELS.get(regear_row.get('payout_method') or '', regear_row.get('payout_method') or '未记录')}`")
+        if regear_row.get("payout_note"):
+            issue_lines.append(f"备注：`{regear_row['payout_note']}`")
+
+    sections = [kmd_section("补装通知", issue_lines)]
+    if event:
+        sections.append(kmd_section("死亡事件", _event_summary_lines(event)))
+    detail_lines = _equipment_detail_lines(valuation_result)
+    sections.append(kmd_section("装备明细", detail_lines or ["（暂无装备估值明细）"]))
+
+    card = Card(*interleave_dividers(sections), theme=theme)
+    _append_killboard_button(card, (event or {}).get("EventId") or regear_row.get("event_id"))
     return CardMessage(card)
 
 

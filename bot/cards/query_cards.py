@@ -19,6 +19,18 @@ def beijing(ts_iso: str) -> str:
     return (dt + timedelta(hours=8)).strftime("%m-%d %H:%M")
 
 
+def beijing_datetime(ts: object) -> str:
+    """UTC 数据库/API 时间 → 完整北京时间，用于审批/处理记录。"""
+    raw = str(ts or "").strip()
+    if not raw:
+        return ""
+    try:
+        dt = datetime.fromisoformat(raw[:19])
+    except ValueError:
+        return raw
+    return (dt + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S 北京时间")
+
+
 # 亚服击杀板：EventId 即官网 kill id
 KILLBOARD_URL = "https://albiononline.com/killboard/kill/{eid}?server=live_sgp"
 

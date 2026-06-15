@@ -10,9 +10,13 @@ from bot.cards.regear_cards import (
     death_select_card,
     regear_apply_card,
     regear_approved_card,
+    regear_notice_card,
     regear_queue_card,
+    regear_reviewer_apply_card,
+    regear_reviewer_result_card,
 )
 from bot.commands import admin, regear
+from khl import api
 from bot.tasks import auto
 from bot.store import repo
 from bot.store.db import init_db
@@ -251,6 +255,92 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(row["reviewed_at"])
         self.assertIsNone(repo.get_open_regear_reviewer_request("guild", "user"))
 
+    def test_regear_reviewer_result_card_shows_request_id_and_status(self):
+        row = {
+            "id": 12,
+            "kook_user_id": "user-1",
+            "status": "approved",
+            "created_at": "2026-06-15 09:00:00",
+            "reviewed_at": "2026-06-15 10:16:51",
+            "reviewed_by": "admin",
+        }
+
+        text = card_text(regear_reviewer_result_card(row))
+
+        self.assertIn("补装审核身份申请 `#12` 已通过", text)
+        self.assertIn("(met)user-1(met)", text)
+        self.assertIn("当前状态：`已通过`", text)
+        self.assertIn("申请时间：`2026-06-15 17:00:00 北京时间`", text)
+        self.assertIn("审核时间：`2026-06-15 18:16:51 北京时间`", text)
+
+    def test_regear_reviewer_apply_card_shows_request_id_and_pending_status(self):
+        text = card_text(regear_reviewer_apply_card(12, "user-1"))
+
+        self.assertIn("申请号：`#12`", text)
+        self.assertIn("当前状态：`待审批`", text)
+        self.assertIn("(met)user-1(met)", text)
+
+    async def test_regear_reviewer_request_approval_notifies_and_updates_original_card(self):
+        repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "approval_channel_id", "approval")
+        repo.set_setting("guild", "member_change_channel_id", "member-change")
+        repo.set_setting("guild", "regear_reviewer_role_ids", "reviewer")
+        rid = repo.create_regear_reviewer_request("guild", "user-1")
+        repo.set_regear_reviewer_request_message(rid, "msg-reviewer-1")
+        channels = {"approval": FakeChannel("approval"), "member-change": FakeChannel("member-change")}
+        guild = FakeGuild(FakeUser([], user_id="owner"))
+        bot = FakeBot(channels, guild)
+
+        await regear._handle_reviewer_request_review(
+            bot,
+            "regear_reviewer_approve",
+            {"rid": rid},
+            "guild",
+            "owner",
+            channels["approval"],
+        )
+
+        row = repo.get_regear_reviewer_request(rid)
+        self.assertEqual(row["status"], "approved")
+        self.assertEqual(guild.granted_roles, [("user-1", "reviewer")])
+        self.assertEqual(len(channels["member-change"].messages), 1)
+        notice = card_text(channels["member-change"].messages[0])
+        self.assertIn("补装审核身份申请 `#1` 已通过", notice)
+        self.assertIn("(met)user-1(met)", notice)
+        updates = [req for req in bot.client.gate.requests if req.route == "message/update"]
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0].params["json"]["msg_id"], "msg-reviewer-1")
+        self.assertIn("当前状态：`已通过`", updates[0].params["json"]["content"])
+
+    async def test_regear_reviewer_request_rejection_notifies_and_updates_original_card(self):
+        repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "approval_channel_id", "approval")
+        repo.set_setting("guild", "member_change_channel_id", "member-change")
+        repo.set_setting("guild", "regear_reviewer_role_ids", "reviewer")
+        rid = repo.create_regear_reviewer_request("guild", "user-1")
+        repo.set_regear_reviewer_request_message(rid, "msg-reviewer-1")
+        channels = {"approval": FakeChannel("approval"), "member-change": FakeChannel("member-change")}
+        bot = FakeBot(channels, FakeGuild(FakeUser([], user_id="owner")))
+
+        await regear._handle_reviewer_request_review(
+            bot,
+            "regear_reviewer_reject",
+            {"rid": rid},
+            "guild",
+            "owner",
+            channels["approval"],
+        )
+
+        row = repo.get_regear_reviewer_request(rid)
+        self.assertEqual(row["status"], "rejected")
+        self.assertEqual(len(channels["member-change"].messages), 1)
+        notice = card_text(channels["member-change"].messages[0])
+        self.assertIn("补装审核身份申请 `#1` 已拒绝", notice)
+        self.assertIn("当前状态：`已拒绝`", notice)
+        updates = [req for req in bot.client.gate.requests if req.route == "message/update"]
+        self.assertEqual(len(updates), 1)
+        self.assertIn("当前状态：`已拒绝`", updates[0].params["json"]["content"])
+
     async def test_refresh_regear_estimate_updates_stored_value(self):
         rid = repo.create_regear("guild", "user", "player", "event-1", 100)
         gi = FakeGameInfo(
@@ -335,6 +425,7 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("#123", text)
         self.assertIn("已发放", text)
         self.assertIn("处理时间", text)
+        self.assertIn("2026-06-15 20:00:00 北京时间", text)
         self.assertIn("等额银币", text)
         self.assertNotIn("999", text)
         self.assertNotIn("event-1", text)
@@ -348,6 +439,200 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("#123", text)
         self.assertIn("已拒绝", text)
         self.assertIn("重复申请", text)
+
+    async def test_regear_approve_sends_status_notice_with_details_to_applicant(self):
+        repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "regear_reviewer_role_ids", "reviewer")
+        repo.set_setting("guild", "regear_payout_channel_id", "payout")
+        repo.set_setting("guild", "regear_notify_channel_id", "notify")
+        rid = repo.create_regear("guild", "user-1", "player-1", "event-1", 100)
+        channels = {"review": FakeChannel("review"), "payout": FakeChannel("payout"), "notify": FakeChannel("notify")}
+        bot = FakeBot(channels, FakeGuild(FakeUser(["reviewer"], user_id="reviewer-user")))
+
+        await regear._handle_review(
+            bot,
+            FakeGameInfo(sample_regear_event("event-1")),
+            FakeMarket(),
+            "regear_approve",
+            {"rid": rid},
+            "guild",
+            "reviewer-user",
+            channels["review"],
+        )
+
+        row = repo.get_regear(rid)
+        self.assertEqual(row["status"], "approved")
+        self.assertTrue(any("已通过" in str(m) and "已转到发放频道" in str(m) for m in channels["review"].messages))
+        self.assertEqual(len(channels["payout"].messages), 1)
+        self.assertEqual(len(channels["notify"].messages), 1)
+        notice = channels["notify"].messages[0]
+        text = card_text(notice)
+        buttons = card_buttons(notice)
+        self.assertIn("补装申请 `#1` 已通过", text)
+        self.assertIn("(met)user-1(met)", text)
+        self.assertIn("当前状态：`待发放`", text)
+        self.assertIn("补装金额 ≈ `1,500` 银", text)
+        self.assertIn("**装备明细**", text)
+        self.assertIn("T8.1", text)
+        self.assertTrue(any(b["value"] == KILLBOARD_URL.format(eid="event-1") for b in buttons))
+
+    async def test_regear_approve_updates_original_review_card_status(self):
+        repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "regear_reviewer_role_ids", "reviewer")
+        rid = repo.create_regear("guild", "user-1", "player-1", "event-1", 100)
+        repo.set_regear_message(rid, "msg-review-1")
+        channel = FakeChannel("review")
+        bot = FakeBot({"review": channel}, FakeGuild(FakeUser(["reviewer"], user_id="reviewer-user")))
+
+        await regear._handle_review(
+            bot,
+            FakeGameInfo(sample_regear_event("event-1")),
+            FakeMarket(),
+            "regear_approve",
+            {"rid": rid},
+            "guild",
+            "reviewer-user",
+            channel,
+        )
+
+        updates = [req for req in bot.client.gate.requests if req.route == "message/update"]
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0].params["json"]["msg_id"], "msg-review-1")
+        content = updates[0].params["json"]["content"]
+        self.assertIn("补装申请 `#1` 已通过", content)
+        self.assertIn("当前状态：`待发放`", content)
+
+    async def test_regear_reject_sends_status_notice_with_reason_and_details(self):
+        repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "regear_reviewer_role_ids", "reviewer")
+        repo.set_setting("guild", "regear_notify_channel_id", "notify")
+        rid = repo.create_regear("guild", "user-1", "player-1", "event-1", 100)
+        channels = {"review": FakeChannel("review"), "notify": FakeChannel("notify")}
+        bot = FakeBot(channels, FakeGuild(FakeUser(["reviewer"], user_id="reviewer-user")))
+
+        await regear._handle_review(
+            bot,
+            FakeGameInfo(sample_regear_event("event-1")),
+            FakeMarket(),
+            "regear_reject",
+            {"rid": rid, "reason": "装备/金额异常"},
+            "guild",
+            "reviewer-user",
+            channels["review"],
+        )
+
+        self.assertEqual(repo.get_regear(rid)["status"], "rejected")
+        self.assertEqual(len(channels["notify"].messages), 1)
+        notice = channels["notify"].messages[0]
+        text = card_text(notice)
+        self.assertIn("补装申请 `#1` 已拒绝", text)
+        self.assertIn("当前状态：`已拒绝`", text)
+        self.assertIn("原因：`装备/金额异常`", text)
+        self.assertIn("**装备明细**", text)
+        self.assertIn("T6.3", text)
+        self.assertTrue(any(b["value"] == KILLBOARD_URL.format(eid="event-1") for b in card_buttons(notice)))
+
+    async def test_regear_reject_updates_original_review_card_status(self):
+        repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "regear_reviewer_role_ids", "reviewer")
+        rid = repo.create_regear("guild", "user-1", "player-1", "event-1", 100)
+        repo.set_regear_message(rid, "msg-review-1")
+        channel = FakeChannel("review")
+        bot = FakeBot({"review": channel}, FakeGuild(FakeUser(["reviewer"], user_id="reviewer-user")))
+
+        await regear._handle_review(
+            bot,
+            FakeGameInfo(sample_regear_event("event-1")),
+            FakeMarket(),
+            "regear_reject",
+            {"rid": rid, "reason": "非补装范围"},
+            "guild",
+            "reviewer-user",
+            channel,
+        )
+
+        updates = [req for req in bot.client.gate.requests if req.route == "message/update"]
+        self.assertEqual(len(updates), 1)
+        content = updates[0].params["json"]["content"]
+        self.assertIn("补装申请 `#1` 已拒绝", content)
+        self.assertIn("原因：`非补装范围`", content)
+
+    async def test_regear_paid_sends_status_notice_with_method_and_details(self):
+        repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "regear_reviewer_role_ids", "reviewer")
+        repo.set_setting("guild", "regear_notify_channel_id", "notify")
+        rid = repo.create_regear("guild", "user-1", "player-1", "event-1", 100)
+        repo.set_regear_status(rid, "approved", "admin")
+        channels = {"payout": FakeChannel("payout"), "notify": FakeChannel("notify")}
+        bot = FakeBot(channels, FakeGuild(FakeUser(["reviewer"], user_id="reviewer-user")))
+
+        await regear._handle_review(
+            bot,
+            FakeGameInfo(sample_regear_event("event-1")),
+            FakeMarket(),
+            "regear_paid",
+            {"rid": rid, "method": "equipment"},
+            "guild",
+            "reviewer-user",
+            channels["payout"],
+        )
+
+        row = repo.get_regear(rid)
+        self.assertEqual(row["status"], "paid")
+        self.assertEqual(row["payout_method"], "equipment")
+        self.assertEqual(len(channels["notify"].messages), 1)
+        notice = channels["notify"].messages[0]
+        text = card_text(notice)
+        self.assertIn("补装申请 `#1` 已发放", text)
+        self.assertIn("当前状态：`已发放`", text)
+        self.assertIn("发放方式：`原样装备`", text)
+        self.assertIn("**装备明细**", text)
+        self.assertIn("T8.1", text)
+        self.assertTrue(any(b["value"] == KILLBOARD_URL.format(eid="event-1") for b in card_buttons(notice)))
+
+    async def test_regear_pick_submit_reply_includes_request_id(self):
+        repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "regear_review_channel_id", "review")
+        repo.set_player_binding("user-1", "guild", "player-1", "Latano")
+        channels = {"apply": FakeChannel("apply"), "review": FakeChannel("review")}
+        bot = FakeBot(channels, FakeGuild(FakeUser([], user_id="user-1")))
+
+        await regear._handle_pick(
+            bot,
+            FakeGameInfo(sample_regear_event("event-1")),
+            FakeMarket(),
+            {"eid": "event-1"},
+            "guild",
+            "user-1",
+            channels["apply"],
+        )
+
+        self.assertIn("#1", channels["apply"].messages[-1])
+        self.assertIn("已提交补装申请", channels["apply"].messages[-1])
+
+    async def test_regear_processed_click_reports_current_status(self):
+        repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "regear_reviewer_role_ids", "reviewer")
+        rid = repo.create_regear("guild", "user-1", "player-1", "event-1", 100)
+        repo.set_regear_rejected(rid, "admin", "重复申请")
+        channel = FakeChannel("review")
+        bot = FakeBot({"review": channel}, FakeGuild(FakeUser(["reviewer"], user_id="reviewer-user")))
+
+        await regear._handle_review(
+            bot,
+            FakeGameInfo(sample_regear_event("event-1")),
+            FakeMarket(),
+            "regear_approve",
+            {"rid": rid},
+            "guild",
+            "reviewer-user",
+            channel,
+        )
+
+        self.assertEqual(len(channel.messages), 1)
+        self.assertIn("已拒绝", channel.messages[0])
+        self.assertIn("重复申请", channel.messages[0])
+        self.assertNotIn("已处理或失效", channel.messages[0])
 
     def test_admin_usage_includes_split_regear_center_commands(self):
         self.assertIn("/设置 补装初始化频道", admin.SETTING_USAGE)
@@ -414,6 +699,7 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("**补装口径**", text)
         self.assertIn("**装备明细**", text)
         self.assertTrue(any("申请号：`#1`" in s and "角色：`Latano`" in s for s in sections))
+        self.assertIn("当前状态：`待审批`", text)
         self.assertIn("补装金额 ≈ 1,165,632 银", text)
         self.assertIn("只计算穿戴装备", text)
         self.assertIn("背包物品不计入补装", text)
@@ -504,10 +790,10 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("已拒绝", regear._regear_processed_text(rejected))
         self.assertIn("装备异常", regear._regear_processed_text(rejected))
-        self.assertIn("2026-06-15 10:00:00", regear._regear_processed_text(rejected))
+        self.assertIn("2026-06-15 18:00:00 北京时间", regear._regear_processed_text(rejected))
         self.assertIn("已发放", regear._regear_processed_text(paid))
         self.assertIn("原样装备", regear._regear_processed_text(paid))
-        self.assertIn("2026-06-15 11:00:00", regear._regear_processed_text(paid))
+        self.assertIn("2026-06-15 19:00:00 北京时间", regear._regear_processed_text(paid))
 
     def test_regear_status_text_includes_processing_details(self):
         rows = [
@@ -531,10 +817,30 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("已发放", text)
         self.assertIn("等额银币", text)
-        self.assertIn("2026-06-15 11:00:00", text)
+        self.assertIn("2026-06-15 19:00:00 北京时间", text)
         self.assertIn("已拒绝", text)
         self.assertIn("证据不足", text)
-        self.assertIn("2026-06-15 12:00:00", text)
+        self.assertIn("2026-06-15 20:00:00 北京时间", text)
+
+    def test_regear_notice_card_labels_database_times_as_beijing(self):
+        row = {
+            "id": 123,
+            "kook_user_id": "user-1",
+            "event_id": "event-1",
+            "est_value": 1000,
+            "status": "rejected",
+            "created_at": "2026-06-15 09:00:00",
+            "reviewed_at": "2026-06-15 10:16:51",
+            "reviewed_by": "admin",
+            "reject_reason": "非补装范围",
+        }
+
+        text = card_text(regear_notice_card(row))
+
+        self.assertIn("申请号：`#123`", text)
+        self.assertIn("申请时间：`2026-06-15 17:00:00 北京时间`", text)
+        self.assertIn("审核时间：`2026-06-15 18:16:51 北京时间`", text)
+        self.assertNotIn("2026-06-15 10:16:51。", text)
 
     def test_regear_death_detail_card_labels_total_as_regear_amount(self):
         event = {
@@ -628,5 +934,87 @@ class FakeMarket:
 
 
 class FakeUser:
-    def __init__(self, roles):
+    def __init__(self, roles, user_id="user"):
+        self.id = user_id
         self.roles = roles
+
+
+class FakeRole:
+    def __init__(self, role_id, permissions=0):
+        self.id = role_id
+        self.name = f"role-{role_id}"
+        self.permissions = permissions
+
+
+class FakeGuild:
+    def __init__(self, user):
+        self.user = user
+        self.master_id = "owner"
+        self.granted_roles = []
+
+    async def load(self):
+        return None
+
+    async def fetch_roles(self):
+        return [FakeRole("reviewer")]
+
+    async def fetch_user(self, user_id):
+        self.user.id = user_id
+        return self.user
+
+    async def grant_role(self, user_id, role_id):
+        self.granted_roles.append((user_id, role_id))
+
+
+class FakeClient:
+    def __init__(self, channels, guild):
+        self.channels = channels
+        self.guild = guild
+        self.gate = FakeGate()
+
+    async def fetch_guild(self, guild_id):
+        return self.guild
+
+    async def fetch_public_channel(self, channel_id):
+        return self.channels[str(channel_id)]
+
+
+class FakeBot:
+    def __init__(self, channels, guild):
+        self.client = FakeClient(channels, guild)
+
+
+class FakeGate:
+    def __init__(self):
+        self.requests = []
+
+    async def exec_req(self, req):
+        self.requests.append(req)
+        return {}
+
+
+class FakeChannel:
+    def __init__(self, channel_id):
+        self.id = channel_id
+        self.messages = []
+
+    async def send(self, message):
+        self.messages.append(message)
+        return {"msg_id": f"msg-{self.id}-{len(self.messages)}"}
+
+
+def sample_regear_event(event_id="event-1"):
+    return {
+        "EventId": event_id,
+        "TimeStamp": "2026-06-14T10:00:00",
+        "TotalVictimKillFame": 99000,
+        "numberOfParticipants": 3,
+        "Victim": {
+            "AverageItemPower": 1200,
+            "Equipment": {
+                "MainHand": {"Type": "T8_MAIN_SPEAR_KEEPER@1", "Quality": 4},
+                "OffHand": {"Type": "T6_OFF_DEMONSKULL_HELL@3", "Quality": 4},
+            },
+        },
+        "Killer": {"Name": "killer", "GuildName": "enemy"},
+    }

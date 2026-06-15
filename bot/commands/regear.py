@@ -12,15 +12,19 @@ from bot import perms
 from bot.albion import valuation
 from bot.albion.gameinfo import GameInfo
 from bot.albion.market import Market
+from bot.cards.query_cards import beijing_datetime
 from bot.cards.regear_cards import (
     PAYOUT_METHOD_LABELS,
     death_detail_card,
     death_select_card,
     regear_apply_card,
     regear_approved_card,
+    regear_notice_card,
     regear_queue_card,
     regear_reviewer_apply_card,
+    regear_reviewer_result_card,
 )
+from bot.commands.kook_message import update_public_message
 from bot.store import repo
 
 log = logging.getLogger(__name__)
@@ -99,21 +103,39 @@ def _regear_approval_channel(guild_binding: dict | None) -> str | None:
     return _regear_review_channel(guild_binding)
 
 
-async def _send_regear_notice(b: Bot, guild_binding: dict | None, text: str) -> None:
+async def _send_regear_notice(b: Bot, guild_binding: dict | None, payload) -> None:
     notify_channel_id = _regear_notify_channel(guild_binding)
     if not notify_channel_id:
         return
     try:
         notify_channel = await b.client.fetch_public_channel(notify_channel_id)
-        await notify_channel.send(text)
+        await notify_channel.send(payload)
     except Exception as exc:
         log.warning("发送补装通知失败 channel=%s: %s", notify_channel_id, exc)
+
+
+def _regear_reviewer_notify_channel(guild_binding: dict | None) -> str | None:
+    return _first_channel(guild_binding, "member_change_channel_id", "approval_channel_id")
+
+
+async def _send_regear_reviewer_notice(b: Bot, guild_binding: dict | None, fallback_channel, payload) -> None:
+    channel_id = _regear_reviewer_notify_channel(guild_binding)
+    if not channel_id:
+        await fallback_channel.send(payload)
+        return
+    try:
+        channel = await b.client.fetch_public_channel(channel_id)
+    except Exception as exc:
+        log.warning("拉取补装审核身份通知频道失败 channel=%s: %s", channel_id, exc)
+        await fallback_channel.send(payload)
+        return
+    await channel.send(payload)
 
 
 def _regear_paid_notice(regear_row: dict) -> str:
     rid = regear_row.get("id") or "?"
     user_id = regear_row.get("kook_user_id") or "?"
-    paid_at = regear_row.get("paid_at") or "未知"
+    paid_at = beijing_datetime(regear_row.get("paid_at")) or "未知"
     method = _payout_method_label(regear_row.get("payout_method"))
     return (
         f"✅ 补装申请 `#{rid}` 已发放：(met){user_id}(met)\n"
@@ -124,7 +146,7 @@ def _regear_paid_notice(regear_row: dict) -> str:
 def _regear_rejected_notice(regear_row: dict) -> str:
     rid = regear_row.get("id") or "?"
     user_id = regear_row.get("kook_user_id") or "?"
-    reviewed_at = regear_row.get("reviewed_at") or "未知"
+    reviewed_at = beijing_datetime(regear_row.get("reviewed_at")) or "未知"
     reason = regear_row.get("reject_reason") or "未填写"
     return (
         f"❌ 补装申请 `#{rid}` 已拒绝：(met){user_id}(met)\n"
@@ -149,21 +171,21 @@ def _regear_processed_text(regear_row: dict) -> str:
     if status == "paid":
         return (
             f"补装申请 `#{rid}` 已发放：(met){user_id}(met)\n"
-            f"处理时间：`{regear_row.get('paid_at') or '未知'}`　"
+            f"处理时间：`{beijing_datetime(regear_row.get('paid_at')) or '未知'}`　"
             f"处理人：(met){regear_row.get('paid_by') or '-'}(met)　"
             f"方式：`{_payout_method_label(regear_row.get('payout_method'))}`"
         )
     if status == "rejected":
         return (
             f"补装申请 `#{rid}` 已拒绝：(met){user_id}(met)\n"
-            f"处理时间：`{regear_row.get('reviewed_at') or '未知'}`　"
+            f"处理时间：`{beijing_datetime(regear_row.get('reviewed_at')) or '未知'}`　"
             f"处理人：(met){regear_row.get('reviewed_by') or '-'}(met)　"
             f"原因：`{regear_row.get('reject_reason') or '未填写'}`"
         )
     if status == "approved":
         return (
             f"补装申请 `#{rid}` 已通过，等待发放：(met){user_id}(met)\n"
-            f"审核时间：`{regear_row.get('reviewed_at') or '未知'}`　"
+            f"审核时间：`{beijing_datetime(regear_row.get('reviewed_at')) or '未知'}`　"
             f"审核人：(met){regear_row.get('reviewed_by') or '-'}(met)"
         )
     if status == "pending":
@@ -205,7 +227,7 @@ def register(bot: Bot, gi: GameInfo, mk: Market) -> None:
             if args[0] in ("状态", "进度", "我的"):
                 await _handle_status_cmd(msg)
                 return
-            await _handle_queue_cmd(bot, msg, args)
+            await _handle_queue_cmd(bot, gi, mk, msg, args)
             return
 
         kgid = msg.ctx.guild.id
@@ -307,13 +329,30 @@ def register(bot: Bot, gi: GameInfo, mk: Market) -> None:
             await _handle_review(b, gi, mk, act, val, guild_id, clicker, channel)
 
 
-async def _handle_queue_cmd(b: Bot, msg: Message, args):
+async def _load_regear_valuation(regear_row: dict, gi: GameInfo, mk: Market) -> tuple[dict | None, dict | None]:
+    try:
+        event_id = regear_row.get("event_id")
+        if not event_id:
+            return None, None
+        ev = await gi.event(event_id)
+        result = await valuation.estimate(ev, mk)
+        return ev, result
+    except Exception as exc:
+        log.warning("补装通知明细加载失败 request=%s: %s", regear_row.get("id"), exc)
+        return None, None
+
+
+async def _update_regear_source_card(b: Bot, regear_row: dict, card) -> bool:
+    return await update_public_message(b.client, regear_row.get("message_id"), card)
+
+
+async def _handle_queue_cmd(b: Bot, gi: GameInfo, mk: Market, msg: Message, args):
     key = args[0]
     if key in ("拒绝", "驳回"):
-        await _handle_reject_cmd(b, msg, args)
+        await _handle_reject_cmd(b, gi, mk, msg, args)
         return
     if key in ("发放", "已发放"):
-        await _handle_paid_cmd(b, msg, args)
+        await _handle_paid_cmd(b, gi, mk, msg, args)
         return
     if key not in _QUEUE_FILTERS:
         await msg.reply(
@@ -330,7 +369,7 @@ async def _handle_queue_cmd(b: Bot, msg: Message, args):
     await msg.reply(regear_queue_card(f"补装{key}", rows))
 
 
-async def _handle_reject_cmd(b: Bot, msg: Message, args):
+async def _handle_reject_cmd(b: Bot, gi: GameInfo, mk: Market, msg: Message, args):
     if len(args) < 3:
         await msg.reply("用法：`/补装 拒绝 #申请号 理由文本`")
         return
@@ -350,13 +389,16 @@ async def _handle_reject_cmd(b: Bot, msg: Message, args):
     if rr.get("status") != "pending":
         await msg.reply(_regear_processed_text(rr))
         return
+    ev, result = await _load_regear_valuation(rr, gi, mk)
     repo.set_regear_rejected(rid, msg.author.id, reason)
     rr = repo.get_regear(rid) or rr
-    await msg.reply(_regear_rejected_notice(rr))
-    await _send_regear_notice(b, gbind, _regear_rejected_notice(rr))
+    card = regear_notice_card(rr, ev, result)
+    await _update_regear_source_card(b, rr, card)
+    await msg.reply(card)
+    await _send_regear_notice(b, gbind, card)
 
 
-async def _handle_paid_cmd(b: Bot, msg: Message, args):
+async def _handle_paid_cmd(b: Bot, gi: GameInfo, mk: Market, msg: Message, args):
     if len(args) < 3:
         await msg.reply("用法：`/补装 发放 #申请号 银币|装备|物品 [备注]`")
         return
@@ -377,13 +419,13 @@ async def _handle_paid_cmd(b: Bot, msg: Message, args):
     if rr.get("status") != "approved":
         await msg.reply(_regear_processed_text(rr))
         return
+    ev, result = await _load_regear_valuation(rr, gi, mk)
     repo.set_regear_paid(rid, msg.author.id, method, note)
     rr = repo.get_regear(rid) or rr
-    await msg.reply(
-        f"✅ 已标记 (met){rr['kook_user_id']}(met) 的补装已发放，"
-        f"方式：{_payout_method_label(method)}，处理时间：`{rr.get('paid_at') or '未知'}`。"
-    )
-    await _send_regear_notice(b, gbind, _regear_paid_notice(rr))
+    card = regear_notice_card(rr, ev, result)
+    await _update_regear_source_card(b, rr, card)
+    await msg.reply(card)
+    await _send_regear_notice(b, gbind, card)
 
 
 async def _handle_status_cmd(msg: Message):
@@ -408,16 +450,16 @@ def _regear_status_text(rows: list[dict]) -> str:
         line = f"· `#{row['id']}` {status}　金额 `{fmt(row.get('est_value'))}` 银"
         if row.get("status") == "paid":
             line += (
-                f"　处理时间 `{row.get('paid_at') or '未知'}`"
+                f"　处理时间 `{beijing_datetime(row.get('paid_at')) or '未知'}`"
                 f"　方式 `{_payout_method_label(row.get('payout_method'))}`"
             )
         elif row.get("status") == "rejected":
             line += (
-                f"　处理时间 `{row.get('reviewed_at') or '未知'}`"
+                f"　处理时间 `{beijing_datetime(row.get('reviewed_at')) or '未知'}`"
                 f"　原因 `{row.get('reject_reason') or '未填写'}`"
             )
         elif row.get("status") == "approved" and row.get("reviewed_at"):
-            line += f"　审核时间 `{row.get('reviewed_at')}`"
+            line += f"　审核时间 `{beijing_datetime(row.get('reviewed_at'))}`"
         lines.append(line)
     return "\n".join(lines)
 
@@ -496,7 +538,7 @@ async def _handle_pick(b, gi, mk, val, guild_id, clicker, channel):
         await channel.send("⚠️ 提交失败（检查补装审核频道）。")
         return
     await channel.send(
-        f"📨 已提交补装申请（补装金额 ≈ {result['total']:,} 银，仅计算穿戴装备；背包不计入），等待管理员审批。"
+        f"📨 已提交补装申请 `#{rid}`（补装金额 ≈ {result['total']:,} 银，仅计算穿戴装备；背包不计入），等待管理员审批。"
     )
 
 
@@ -531,10 +573,8 @@ async def _handle_review(b, gi, mk, act, val, guild_id, clicker, channel):
     rid = val.get("rid")
     rr = repo.get_regear(rid)
     if not rr:
-        await channel.send("该补装申请已处理或失效。")
+        await channel.send(f"没有找到补装申请 `#{rid or '?'}`，可能已删除或按钮来自旧消息。")
         return
-
-    from bot.cards.query_cards import fmt
 
     if act == "regear_paid":
         if rr["status"] != "approved":
@@ -546,14 +586,13 @@ async def _handle_review(b, gi, mk, act, val, guild_id, clicker, channel):
                 f"请选择发放方式后再标记：`/补装 发放 #{rid} 银币|装备|物品 [备注]`"
             )
             return
+        ev, result = await _load_regear_valuation(rr, gi, mk)
         repo.set_regear_paid(rid, clicker, method)
         rr = repo.get_regear(rid) or rr
-        await channel.send(
-            f"✅ 已标记 (met){rr['kook_user_id']}(met) 的补装已发放，"
-            f"金额 ≈ {fmt(rr['est_value'])} 银，方式：{_payout_method_label(method)}，"
-            f"处理时间：`{rr.get('paid_at') or '未知'}`。"
-        )
-        await _send_regear_notice(b, gbind, _regear_paid_notice(rr))
+        card = regear_notice_card(rr, ev, result)
+        await _update_regear_source_card(b, rr, card)
+        await channel.send(card)
+        await _send_regear_notice(b, gbind, card)
         return
 
     if rr["status"] != "pending":
@@ -565,13 +604,13 @@ async def _handle_review(b, gi, mk, act, val, guild_id, clicker, channel):
         if not reason:
             await channel.send(f"请选择拒绝理由，或使用 `/补装 拒绝 #{rid} 理由文本`。")
             return
+        ev, result = await _load_regear_valuation(rr, gi, mk)
         repo.set_regear_rejected(rid, clicker, reason)
         rr = repo.get_regear(rid) or rr
-        await channel.send(
-            f"❌ 已拒绝 (met){rr['kook_user_id']}(met) 的补装申请，原因：`{reason}`，"
-            f"处理时间：`{rr.get('reviewed_at') or '未知'}`。"
-        )
-        await _send_regear_notice(b, gbind, _regear_rejected_notice(rr))
+        card = regear_notice_card(rr, ev, result)
+        await _update_regear_source_card(b, rr, card)
+        await channel.send(card)
+        await _send_regear_notice(b, gbind, card)
         return
     ev = None
     result = None
@@ -582,6 +621,9 @@ async def _handle_review(b, gi, mk, act, val, guild_id, clicker, channel):
         log.warning("审批前刷新补装估值失败，沿用旧值: %s", exc)
     repo.set_regear_status(rid, "approved", clicker)
     rr = repo.get_regear(rid) or rr
+    notice_card = regear_notice_card(rr, ev, result)
+    await _update_regear_source_card(b, rr, notice_card)
+    await _send_regear_notice(b, gbind, notice_card)
     payout_channel_id = _regear_payout_channel(gbind)
     if not payout_channel_id or payout_channel_id == getattr(channel, "id", None):
         await channel.send(regear_approved_card(rr, ev, result))
@@ -613,13 +655,19 @@ async def _handle_reviewer_request_review(b, act, val, guild_id, clicker, channe
 
     request_id = val.get("rid")
     req = repo.get_regear_reviewer_request(request_id)
-    if not req or req["status"] != "pending":
-        await channel.send("该补装审核身份申请已处理或失效。")
+    if not req:
+        await channel.send(f"没有找到补装审核身份申请 `#{request_id or '?'}`，可能已删除或按钮来自旧消息。")
+        return
+    if req["status"] != "pending":
+        await channel.send(regear_reviewer_result_card(req))
         return
 
     if act == "regear_reviewer_reject":
         repo.set_regear_reviewer_request_status(request_id, "rejected", clicker)
-        await channel.send(f"❌ 已拒绝 (met){req['kook_user_id']}(met) 的补装审核身份申请。")
+        req = repo.get_regear_reviewer_request(request_id) or req
+        card = regear_reviewer_result_card(req)
+        await update_public_message(b.client, req.get("message_id"), card)
+        await _send_regear_reviewer_notice(b, repo.get_guild_binding(guild_id), channel, card)
         return
 
     binding = repo.get_guild_binding(guild_id)
@@ -637,7 +685,10 @@ async def _handle_reviewer_request_review(b, act, val, guild_id, clicker, channe
             warnings.append(f"(rol){role_id}(rol)")
 
     repo.set_regear_reviewer_request_status(request_id, "approved", clicker)
-    tip = ""
+    req = repo.get_regear_reviewer_request(request_id) or req
+    notice_warnings = []
     if warnings:
-        tip = "\n⚠️ 部分身份组发放失败，请检查 bot 身份组排序和管理身份组权限：" + " ".join(warnings)
-    await channel.send(f"✅ 已通过 (met){req['kook_user_id']}(met) 的补装审核身份申请。{tip}")
+        notice_warnings.append("部分身份组发放失败，请检查 bot 身份组排序和管理身份组权限：" + " ".join(warnings))
+    card = regear_reviewer_result_card(req, warnings=notice_warnings)
+    await update_public_message(b.client, req.get("message_id"), card)
+    await _send_regear_reviewer_notice(b, binding, channel, card)
