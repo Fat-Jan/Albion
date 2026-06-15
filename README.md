@@ -6,17 +6,16 @@ GitHub 仓库：<https://github.com/Fat-Jan/Albion.git>
 
 详细操作手册见 [使用说明书.md](使用说明书.md)。设计过程见 [KOOK 机器人实现计划.md](KOOK机器人实现计划.md)，数据源说明见 [阿尔比恩数据接口文档.md](阿尔比恩数据接口文档.md)。
 
-## 当前状态
+## 项目状态
 
-- M0-M6 已实现并在线运行，线上入口为阿里云新加坡服务器的 `albion-kook.service`。
-- 当前项目版本为 `1.0`，单一来源为 `bot/version.py`；`/ping` 返回 `pong v1.0`。
-- 2026-06-15 当前本地调试临时使用线上旧 `KOOK_TOKEN`，因此线上 `albion-kook.service` 已停服，避免 WebSocket 抢连和重复处理消息。
-- SQLite 已保存公会绑定、玩家绑定、武器/副手价格参考库。
-- 旧补装测试记录已清空，清理前数据库备份在 `data/backups/`（不提交到 Git）。
+- 当前通用版本为 `1.0`，单一来源为 `bot/version.py`；机器人在线时 `/ping` 返回 `pong v1.0`。
+- 默认面向亚服：官方战斗数据走 `gameinfo-sgp`，市场数据走 AODP `east`，ZvZ 战报走 albionbb `asia`。
+- 一个 KOOK 服务器绑定一个 Albion 公会；公会、成员、频道、身份组、补装和战报去重状态保存在本地 SQLite。
+- 频道配置保存的是 KOOK 频道 ID，不依赖频道名称。手动改频道名通常不影响机器人；删除频道、重建频道或迁移到新服务器后，需要重新执行对应 `/设置 ...频道 #频道`。
 - 补装金额只计算穿戴装备；背包物品只在详情和总损失里展示，不计入补装。
 - 武器/副手低价参考库覆盖 T4-T8、附魔 `@1`-`@4`、品质 1-5，每 3 天自动刷新。
-- ZvZ 战报聚合、卡片、专属频道配置、最小本会参战人数阈值、持久去重和自动定时推送代码路径已有单元测试覆盖；本机真实 KOOK 发送路径已确认专属频道路由正确，线上 systemd 自动窗口尚未运行验证。
-- 下一阶段先继续 KOOK 端活测和 AI 只读查询打磨；M7 出勤快照后置，等真实用户反馈确认考勤口径后再做。
+- ZvZ 战报聚合、专属频道配置、最小本会参战人数阈值、持久去重和自动定时推送代码路径已有离线测试覆盖。
+- 当前部署实例、活测证据和具体公会相关运维事实只记录在 `STATUS.md` 与 `notepad.md`，不写入通用 README。
 - 项目采用轻量 harness：接手入口见 `AGENTS.md`，短状态见 `STATUS.md`，离线门禁见 `scripts/check.sh`。
 
 ## 功能概览
@@ -38,6 +37,8 @@ GitHub 仓库：<https://github.com/Fat-Jan/Albion.git>
 - `/解绑`：成员解除自己的角色绑定。
 
 绑定关系仍然是一人一服一条记录；自定义昵称保存在 `player_binding.custom_nickname`，审批中的值保存在 `pending_approval.custom_nickname`，不会新增一条绑定行。绑定待审批卡会显示申请号、待审批状态和目标 KOOK 昵称。审批通过或拒绝后，机器人会把结果卡发到成员变动频道；未配置时兜底审批频道。结果卡包含绑定申请号、申请人、角色、目标 KOOK 昵称和当前状态，并会尽量把原审批卡原地更新为已通过或已拒绝。
+
+频道设置写入的是 KOOK 频道 ID；只改频道名不需要重新配置，删除频道或重建频道后才需要重新 `/设置`。
 
 ### 查询指令
 
@@ -161,32 +162,30 @@ nohup .venv/bin/python -m bot.main > bot.log 2>&1 &
 
 ## 运维命令
 
-线上部署在阿里云新加坡服务器 `/opt/albion-kook`，由 systemd 管理：
+同一个 `KOOK_TOKEN` 不能被两个正在运行的 bot 进程同时使用，否则会抢 KOOK WebSocket 连接并可能重复处理消息。调试线上同一个 bot token 前，先停止线上服务：
+
+```bash
+systemctl stop albion-kook.service
+.venv/bin/python -m bot.main
+systemctl start albion-kook.service
+```
+
+如果本地 `.env` 使用独立开发 bot token，则可以直接启动本地机器人调试，不需要停止线上服务：
+
+```bash
+.venv/bin/python -m bot.main
+```
+
+启动日志会打印安全诊断 `bot_id/token_fp/token_source`，用来确认实际生效 token；不要在日志、提交或汇报中输出 token 原文。
+
+如果用 systemd 托管，可按自己的部署路径创建服务后使用：
 
 ```bash
 systemctl status albion-kook.service --no-pager --lines=80
-systemctl stop albion-kook.service
-systemctl start albion-kook.service
 systemctl restart albion-kook.service
 journalctl -u albion-kook.service -n 100 --no-pager
 tail -80 /var/log/albion-kook/bot.log
 ```
-
-当前本地 `.env` 临时使用线上旧 `KOOK_TOKEN` 调试，必须先停止服务器服务，避免同一个 token 抢连接：
-
-```bash
-systemctl stop albion-kook.service
-.venv/bin/python -m bot.main
-systemctl start albion-kook.service
-```
-
-如果本地 `.env` 改回独立开发 bot token，则可直接启动本地机器人调试，不需要停止线上服务：
-
-```bash
-.venv/bin/python -m bot.main
-```
-
-启动日志会打印安全诊断 `bot_id/token_fp/token_source`，用来确认实际生效 token；升级服务器代码时不要替换服务器上的旧 `KOOK_TOKEN`。
 
 查看 bot 进程：
 
