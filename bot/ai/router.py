@@ -191,11 +191,15 @@ def _format_regear_status_fallback(facts: dict) -> str:
     rows = facts.get("requests") or []
     if not rows:
         return "没有查到相关补装申请。"
+    method_labels = {"silver": "等额银币", "equipment": "原样装备", "item": "等价值物品"}
     lines = ["补装申请："]
     for r in rows[:5]:
-        lines.append(
-            f"· #{r.get('id')} `{r.get('status')}` 金额 `{int(r.get('est_value') or 0):,}` 银"
-        )
+        line = f"· #{r.get('id')} `{r.get('status')}` 金额 `{int(r.get('est_value') or 0):,}` 银"
+        if r.get("status") == "rejected" and r.get("reject_reason"):
+            line += f" 原因 `{r.get('reject_reason')}`"
+        if r.get("status") == "paid" and r.get("payout_method"):
+            line += f" 发放方式 `{method_labels.get(r.get('payout_method'), r.get('payout_method'))}`"
+        lines.append(line)
     return "\n".join(lines)
 
 

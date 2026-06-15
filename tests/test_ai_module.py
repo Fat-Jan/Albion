@@ -337,6 +337,33 @@ class AIContextTest(unittest.TestCase):
         self.assertIn("T8_FAKE", context["valuation"]["missing_items"])
         self.assertNotIn("kook_user_id", context["request"])
 
+    def test_regear_status_context_includes_review_outcome_details(self):
+        context = regear_status_context(
+            [
+                {
+                    "id": 1,
+                    "status": "rejected",
+                    "est_value": 2000,
+                    "reject_reason": "证据不足",
+                    "payout_method": None,
+                    "payout_note": None,
+                },
+                {
+                    "id": 2,
+                    "status": "paid",
+                    "est_value": 3000,
+                    "reject_reason": None,
+                    "payout_method": "silver",
+                    "payout_note": "等额银币",
+                },
+            ],
+            own_only=True,
+        )
+
+        self.assertEqual(context["requests"][0]["reject_reason"], "证据不足")
+        self.assertEqual(context["requests"][1]["payout_method"], "silver")
+        self.assertEqual(context["requests"][1]["payout_note"], "等额银币")
+
     def test_regear_context_labels_api_event_time(self):
         context = regear_explain_context(
             {"id": 3, "status": "pending", "est_value": 2000},

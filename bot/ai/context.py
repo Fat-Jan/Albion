@@ -118,6 +118,9 @@ def regear_status_context(rows: list[dict], *, own_only: bool) -> dict:
                 "created_time": _database_time(r.get("created_at")),
                 "reviewed_time": _database_time(r.get("reviewed_at")),
                 "paid_time": _database_time(r.get("paid_at")),
+                "reject_reason": r.get("reject_reason"),
+                "payout_method": r.get("payout_method"),
+                "payout_note": r.get("payout_note"),
             }
             for r in rows[:10]
         ],
