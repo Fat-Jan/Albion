@@ -81,7 +81,7 @@ KOOK ←─WebSocket─→ [机器人进程 (Python/khl.py)]
 ## 五、验证流程（方案二：名字匹配 + 管理员审批）
 
 ```
-玩家 /绑定 <角色名>
+玩家 /绑定 <角色名> [自定义昵称]
    │
    ├─ search + players/{id} 查角色
    │     ├─ 角色不存在 → 直接拒，提示
@@ -89,9 +89,9 @@ KOOK ←─WebSocket─→ [机器人进程 (Python/khl.py)]
    │
    └─ 命中 → KOOK 角色预检（信心分级，非硬门槛）
               ├─ 已持「可信身份组」(管理员配置) → 快速通道，可自动通过
-              └─ 无可信身份组 → 「审批频道」发待审批卡片(含角色名/IP/公会)
+              └─ 无可信身份组 → 「审批频道」发待审批卡片(含角色名/IP/公会/目标昵称)
                                   管理员点 [通过] / [拒绝] 按钮
-                 通过 → 发会员身份组 + 改 KOOK 昵称为角色名 + 落库 player_binding
+                 通过 → 发会员身份组 + 改 KOOK 昵称为角色名或"角色名 - 自定义昵称" + 落库 player_binding
                  拒绝 → 标记 rejected，通知玩家
 ```
 
@@ -134,6 +134,7 @@ player_binding(
   kook_guild_id      TEXT NOT NULL,
   albion_player_id   TEXT NOT NULL,
   albion_player_name TEXT NOT NULL,
+  custom_nickname    TEXT,
   status             TEXT DEFAULT 'verified',
   bound_at           TEXT DEFAULT (datetime('now')),
   PRIMARY KEY (kook_user_id, kook_guild_id)
@@ -145,6 +146,7 @@ pending_approval(
   kook_user_id       TEXT NOT NULL,
   albion_player_id   TEXT NOT NULL,
   albion_player_name TEXT NOT NULL,
+  custom_nickname    TEXT,
   message_id         TEXT,
   status             TEXT DEFAULT 'pending',
   created_at         TEXT DEFAULT (datetime('now'))
@@ -211,7 +213,7 @@ market_price_reference(
 - `/解绑公会`
 
 **玩家**
-- `/绑定 <角色名>` → 走第五节审批流
+- `/绑定 <角色名> [自定义昵称]` → 走第五节审批流；自定义昵称会同步为 `角色名 - 自定义昵称`
 - `/解绑`
 - `/补装` → 选最近死亡 → 看详情或提交补装申请
 - `/补装状态` → 查看本人最近补装进度

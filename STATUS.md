@@ -23,6 +23,10 @@
 
 ## Verification
 
+- 2026-06-15：新增 `/绑定 <角色名> [自定义昵称]` 逻辑；不新增绑定行，`player_binding` 与 `pending_approval` 增加 `custom_nickname` 列并带旧库幂等迁移，审批卡/结果卡显示目标 KOOK 昵称，审批通过或可信身份组快速通道会把 KOOK 昵称同步为 `角色名` 或 `角色名 - 自定义昵称`；AI 只读绑定事实包同步带 `custom_nickname`，并修复非白名单普通 AI 引导问题会因 `facts` 未定义报错的回归。真实 KOOK 活测：审批频道 `4503321752460202` 发绑定审批卡并原地更新结果卡成功；对测试用户 `1380312587` 使用真实 Albion 搜索 `BEISHENGS`（id `RhUAO9T3S5qVnsra3htx2g`，公会 `Mika`）跑完整审批，通过后 KOOK 昵称变为 `BEISHENGS - 北笙`，会员身份组 `47139243` 发放成功；随后已撤回会员身份组并删除本地测试绑定/待审批行。清理残留：昵称恢复为 `BEISHENGS` 被 KOOK 限流 `40000 操作过于频繁，请稍后再试` 阻断，需稍后重试。`tests.test_register_flow` 11 个测试通过，`tests.test_ai_module` 25 个测试通过，`scripts/check.sh` 通过，116 个单元测试通过，`compileall bot scripts tests` 通过。
+- 2026-06-15：排查 ZheNiu `[Coup de grace]` → xbb11 `[Mika]` 死亡估值异常，确认事件 `480344381` 被 `T4_2H_SHAPESHIFTER_AVALON` 单个 `9,999,999` 当前挂单污染，旧逻辑估成 `8,534,118` 银；修复后当前挂单兜底价高于武器/副手本地低价参考 3 倍以上时按参考价封顶，并让 history 查询覆盖 1-5 品质以启用其他品质历史价兜底。真实事件复算：`480344381` 装备估值 `102,288` 银，`480345075` 装备估值 `449,066` 银；`scripts/check.sh` 通过，110 个单元测试通过，`compileall bot scripts tests` 通过。
+- 2026-06-15：本地 SQLite 旧补装数据清理完成；清理前 `guild_binding=1`、`player_binding=3`、`regear_request=2`、`regear_reviewer_request=0`、`market_price_reference=6234`，已先备份到 `data/backups/bot-before-clear-regear-20260615_190645.db`，随后只清理 `regear_request` 和 `regear_reviewer_request` 并 `vacuum`；清理后 `regear_request=0`、`regear_reviewer_request=0`，其他计数不变，`pragma integrity_check` 返回 `ok`。
+- 2026-06-15：绑定审批结果通知、补装审核/拒绝/发放通知闭环、补装审核身份申请结果通知、待审批卡申请号/状态展示和原卡片状态更新修复后，`scripts/check.sh` 通过，108 个单元测试通过，`compileall bot scripts tests` 通过；`git diff --check` 通过。本轮只做离线按钮回调/卡片渲染验证，未启动真实 KOOK bot 活测。
 - 2026-06-15：`scripts/check.sh` 通过，90 个单元测试通过，`compileall bot scripts tests` 通过。
 - 2026-06-15：本机真实 KOOK 测试战报 `codex-test-20260615173113` 通过 `auto._run_battle_report_tick()` 发往专属战报频道 `8139656704033247`；未 fetch/send 到统一/击杀频道 `5938739897296829` 或阵亡频道 `4201481428779754`；`battle_report_seen` 已写入去重记录。脚本退出时 khl.py 有未显式关闭 aiohttp session 的清理 warning，不影响发送断言结论。
 
