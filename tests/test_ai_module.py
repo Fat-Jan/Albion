@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from datetime import date
 
 from bot import config
 from bot.ai.client import AIClient, AIClientConfig
@@ -15,6 +16,7 @@ from bot.ai.context import (
 )
 from bot.ai.router import AIRouter
 from bot.ai.service import AIService
+from bot.commands import ai as ai_commands
 from bot.store import repo
 from bot.store.db import init_db
 
@@ -436,6 +438,25 @@ class AIContextTest(unittest.TestCase):
         self.assertEqual(
             start_time["beijing_time_utc8"],
             "2026-06-14 18:00 UTC+8（北京时间）",
+        )
+
+    def test_battle_report_date_arg_filters_beijing_night_window(self):
+        target = ai_commands._parse_battle_report_date(
+            ("6-15",), today=date(2026, 6, 16)
+        )
+        battles = ai_commands._filter_battle_report_battles(
+            [
+                {"id": "old-night", "startTime": "2026-06-14T13:31:00Z"},
+                {"id": "target-evening", "startTime": "2026-06-15T15:27:29.938919200Z"},
+                {"id": "target-after-midnight", "startTime": "2026-06-15T16:20:34Z"},
+                {"id": "next-day", "startTime": "2026-06-16T10:00:00Z"},
+            ],
+            target,
+        )
+
+        self.assertEqual(
+            [b["id"] for b in battles],
+            ["target-evening", "target-after-midnight"],
         )
 
     def test_battle_report_context_is_safe_and_readonly(self):
