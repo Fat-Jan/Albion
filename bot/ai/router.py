@@ -113,7 +113,7 @@ class AIRouter:
     async def _answer_recent_activity(self, guild_id: str, user_id: str, question: str) -> str:
         binding = repo.get_player_binding(user_id, guild_id)
         if not binding:
-            return "你还没有绑定角色。可先用 `/绑定 <角色名>` 发起绑定。"
+            return "你还没有绑定角色。可先用 `/绑定 <角色名> [自定义昵称]` 发起绑定。"
         if not self.gameinfo:
             return "玩家最近击杀/阵亡查询暂时不可用，可先用 `/战绩` 查看概况。"
         player_id = binding.get("albion_player_id")
@@ -159,13 +159,17 @@ def _format_binding_status_fallback(facts: dict) -> str:
     binding = facts.get("player_binding")
     if binding:
         name = binding.get("albion_player_name") or "未知角色"
+        custom = binding.get("custom_nickname")
+        display = f"{name} - {custom}" if custom else name
         status = binding.get("status") or "verified"
-        return f"绑定状态：你已绑定 `{name}`（状态 `{status}`）。"
+        return f"绑定状态：你已绑定 `{name}`，KOOK 昵称 `{display}`（状态 `{status}`）。"
     pending = facts.get("pending_approval")
     if pending:
         name = pending.get("albion_player_name") or "未知角色"
-        return f"绑定状态：`{name}` 正在待审批。"
-    return "绑定状态：你还没有绑定角色。可用 `/绑定 <角色名>` 发起绑定。"
+        custom = pending.get("custom_nickname")
+        display = f"{name} - {custom}" if custom else name
+        return f"绑定状态：`{name}` 正在待审批，目标 KOOK 昵称 `{display}`。"
+    return "绑定状态：你还没有绑定角色。可用 `/绑定 <角色名> [自定义昵称]` 发起绑定。"
 
 
 def _format_guild_config_fallback(facts: dict) -> str:

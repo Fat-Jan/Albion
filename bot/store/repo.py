@@ -173,20 +173,22 @@ def set_player_binding(
     kook_guild_id: str,
     albion_player_id: str,
     albion_player_name: str,
+    custom_nickname: str | None = None,
 ) -> None:
     conn = get_conn()
     try:
         conn.execute(
             """
             INSERT INTO player_binding
-                (kook_user_id, kook_guild_id, albion_player_id, albion_player_name, status)
-            VALUES (?, ?, ?, ?, 'verified')
+                (kook_user_id, kook_guild_id, albion_player_id, albion_player_name, custom_nickname, status)
+            VALUES (?, ?, ?, ?, ?, 'verified')
             ON CONFLICT(kook_user_id, kook_guild_id) DO UPDATE SET
                 albion_player_id=excluded.albion_player_id,
                 albion_player_name=excluded.albion_player_name,
+                custom_nickname=excluded.custom_nickname,
                 status='verified'
             """,
-            (kook_user_id, kook_guild_id, albion_player_id, albion_player_name),
+            (kook_user_id, kook_guild_id, albion_player_id, albion_player_name, custom_nickname),
         )
         conn.commit()
     finally:
@@ -232,16 +234,17 @@ def create_pending(
     kook_user_id: str,
     albion_player_id: str,
     albion_player_name: str,
+    custom_nickname: str | None = None,
 ) -> int:
     conn = get_conn()
     try:
         cur = conn.execute(
             """
             INSERT INTO pending_approval
-                (kook_guild_id, kook_user_id, albion_player_id, albion_player_name)
-            VALUES (?, ?, ?, ?)
+                (kook_guild_id, kook_user_id, albion_player_id, albion_player_name, custom_nickname)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (kook_guild_id, kook_user_id, albion_player_id, albion_player_name),
+            (kook_guild_id, kook_user_id, albion_player_id, albion_player_name, custom_nickname),
         )
         conn.commit()
         return cur.lastrowid

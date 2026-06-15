@@ -163,6 +163,7 @@ def binding_status_context(
             {
                 "albion_player_id": player.get("albion_player_id"),
                 "albion_player_name": player.get("albion_player_name"),
+                "custom_nickname": player.get("custom_nickname"),
                 "status": player.get("status"),
                 "bound_time": _database_time(player.get("bound_at")),
             }
@@ -174,6 +175,7 @@ def binding_status_context(
                 "id": pending.get("id"),
                 "albion_player_id": pending.get("albion_player_id"),
                 "albion_player_name": pending.get("albion_player_name"),
+                "custom_nickname": pending.get("custom_nickname"),
                 "status": pending.get("status"),
                 "created_time": _database_time(pending.get("created_at")),
             }

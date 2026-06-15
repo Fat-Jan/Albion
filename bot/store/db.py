@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS player_binding (
   kook_guild_id      TEXT NOT NULL,
   albion_player_id   TEXT NOT NULL,
   albion_player_name TEXT NOT NULL,
+  custom_nickname    TEXT,
   status             TEXT DEFAULT 'verified',
   bound_at           TEXT DEFAULT (datetime('now')),
   PRIMARY KEY (kook_user_id, kook_guild_id)
@@ -52,6 +53,7 @@ CREATE TABLE IF NOT EXISTS pending_approval (
   kook_user_id       TEXT NOT NULL,
   albion_player_id   TEXT NOT NULL,
   albion_player_name TEXT NOT NULL,
+  custom_nickname    TEXT,
   message_id         TEXT,
   status             TEXT DEFAULT 'pending', -- pending/approved/rejected
   created_at         TEXT DEFAULT (datetime('now'))
@@ -124,11 +126,29 @@ def init_db(path: Optional[str] = None) -> None:
     conn = get_conn(path)
     try:
         conn.executescript(SCHEMA)
+        _ensure_binding_columns(conn)
         _ensure_regear_columns(conn)
         _ensure_guild_binding_columns(conn)
         conn.commit()
     finally:
         conn.close()
+
+
+def _ensure_binding_columns(conn: sqlite3.Connection) -> None:
+    """Idempotent lightweight migrations for player binding and approvals."""
+    player_cols = {
+        row["name"] if isinstance(row, sqlite3.Row) else row[1]
+        for row in conn.execute("PRAGMA table_info(player_binding)")
+    }
+    if "custom_nickname" not in player_cols:
+        conn.execute("ALTER TABLE player_binding ADD COLUMN custom_nickname TEXT")
+
+    pending_cols = {
+        row["name"] if isinstance(row, sqlite3.Row) else row[1]
+        for row in conn.execute("PRAGMA table_info(pending_approval)")
+    }
+    if "custom_nickname" not in pending_cols:
+        conn.execute("ALTER TABLE pending_approval ADD COLUMN custom_nickname TEXT")
 
 
 def _ensure_regear_columns(conn: sqlite3.Connection) -> None:

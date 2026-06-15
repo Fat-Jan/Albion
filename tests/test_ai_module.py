@@ -121,7 +121,7 @@ class AIServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.calls[0]["max_tokens"], 300)
         prompt = "\n".join(m["content"] for m in client.calls[0]["messages"])
         self.assertIn("只回答 KOOK 机器人命令引导", prompt)
-        self.assertIn("/绑定 <角色名>", prompt)
+        self.assertIn("/绑定 <角色名> [自定义昵称]", prompt)
         self.assertIn("不要说 /设置 可以查看绑定状态", prompt)
         self.assertIn("不能批准", prompt)
 
@@ -243,6 +243,16 @@ class AIRouterTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("不能执行审批", text)
         self.assertEqual(service.client.calls, [])
+
+    async def test_router_guides_non_whitelisted_questions(self):
+        service = AIService(FakeAIClient("成员可用 /绑定 <角色名> [自定义昵称]。"), enabled=True)
+        router = AIRouter(service)
+
+        text = await router.answer("guild", "user-1", "我怎么绑定角色")
+
+        self.assertIn("/绑定 <角色名> [自定义昵称]", text)
+        prompt = "\n".join(m["content"] for m in service.client.calls[0]["messages"])
+        self.assertIn("只回答 KOOK 机器人命令引导", prompt)
 
     async def test_router_answers_binding_status_from_whitelisted_fact_pack(self):
         repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
@@ -429,12 +439,18 @@ class AIContextTest(unittest.TestCase):
     def test_binding_status_context_keeps_only_safe_user_facts(self):
         context = binding_status_context(
             {"albion_guild_name": "Mika"},
-            {"kook_user_id": "user-1", "albion_player_name": "Latano", "status": "verified"},
+            {
+                "kook_user_id": "user-1",
+                "albion_player_name": "Latano",
+                "custom_nickname": "lt",
+                "status": "verified",
+            },
             None,
         )
 
         self.assertEqual(context["tool"], "binding_status")
         self.assertEqual(context["player_binding"]["albion_player_name"], "Latano")
+        self.assertEqual(context["player_binding"]["custom_nickname"], "lt")
         self.assertNotIn("kook_user_id", context["player_binding"])
 
     def test_guild_config_context_reports_safe_configuration_summary(self):
