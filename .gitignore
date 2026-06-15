@@ -12,6 +12,9 @@ data/*.db
 data/*.db-journal
 data/backups/
 bot.log
+deployments.log
+logs/
+data/reports/
 
 # 物品字典缓存（由 scripts/build_items.py 生成）
 data/items_zh.json

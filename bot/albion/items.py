@@ -13,6 +13,30 @@ log = logging.getLogger(__name__)
 
 _DEFAULT_PATH = os.path.join("data", "items_zh.json")
 _MAP: Optional[dict[str, str]] = None
+_BASE_ALIASES = (
+    # 官方事件里弓可能是 MAIN_BOW，ao-bin-dumps 字典里同物品是 2H_BOW。
+    (re.compile(r"^(T\d+)_MAIN_BOW$"), r"\1_2H_BOW"),
+)
+_PROTOTYPE_RE = re.compile(
+    r"^T(?P<tier>\d+)_(?P<slot>HEAD|ARMOR|SHOES)_(?P<material>CLOTH|LEATHER|PLATE)_PROTOTYPE$"
+)
+_TIER_ZH = {
+    "4": "老手级",
+    "5": "专家级",
+    "6": "大师级",
+    "7": "宗师级",
+    "8": "禅师级",
+}
+_PROTOTYPE_SLOT_ZH = {
+    "HEAD": "头部",
+    "ARMOR": "胸部",
+    "SHOES": "鞋子",
+}
+_PROTOTYPE_MATERIAL_ZH = {
+    "CLOTH": "布甲",
+    "LEATHER": "皮甲",
+    "PLATE": "板甲",
+}
 
 
 def _load(path: str = _DEFAULT_PATH) -> dict[str, str]:
@@ -33,18 +57,46 @@ def base_name(type_: str) -> str:
     return type_.split("@", 1)[0]
 
 
+def _alias_base_name(base: str) -> str:
+    for pattern, repl in _BASE_ALIASES:
+        alias = pattern.sub(repl, base)
+        if alias != base:
+            return alias
+    return base
+
+
+def _prototype_name(base: str) -> Optional[str]:
+    match = _PROTOTYPE_RE.match(base)
+    if not match:
+        return None
+    tier = _TIER_ZH.get(match.group("tier"))
+    slot = _PROTOTYPE_SLOT_ZH.get(match.group("slot"))
+    material = _PROTOTYPE_MATERIAL_ZH.get(match.group("material"))
+    if not tier or not slot or not material:
+        return None
+    return f"{tier}{material}{slot}原型"
+
+
 def localized(type_: str) -> str:
     """把事件里的 Type（可带 @附魔）翻成中文名；查不到回退原始 Type。"""
     if not type_:
         return type_
     m = _load()
-    name = m.get(base_name(type_))
+    base = base_name(type_)
+    enchant = type_.split("@", 1)[1] if "@" in type_ else ""
+    name = m.get(base)
+    if not name:
+        name = m.get(_alias_base_name(base))
     if name:
-        enchant = type_.split("@", 1)[1] if "@" in type_ else ""
         return f"{name}+{enchant}" if enchant and enchant != "0" else name
     # 部分特殊物品（如派系坐骑「迅爪」）UniqueName 自带 @N，基名查不到，回退整串直查
     full = m.get(type_)
-    return full if full else type_
+    if full:
+        return full
+    fallback = _prototype_name(base)
+    if fallback:
+        return f"{fallback}+{enchant}" if enchant and enchant != "0" else fallback
+    return type_
 
 
 _TIER_RE = re.compile(r"^T(\d+)_")
@@ -103,4 +155,3 @@ def find_by_name(query: str, limit: int = 8) -> list[tuple[str, str]]:
         return exact[:limit]
     sub = [(uniq, zh) for zh, uniq in _reverse_index() if q in zh and "@" not in uniq]
     return sub[:limit]
-
