@@ -14,7 +14,7 @@
 - 技术栈定死：Python + khl.py（WebSocket）+ httpx + SQLite；数据源走亚服三件套（gameinfo-sgp / east AODP / albionbb-asia），别混区。
 - 所有设计决议已收口进 `KOOK机器人实现计划.md` 第十一节，无遗留待定项。
 - 项目 GitHub 仓库地址：`https://github.com/Fat-Jan/Albion.git`，本地 Git remote `origin` 已指向该地址。
-- 当前线上服务：阿里云新加坡 `aliyun_singapore` 上的 `albion-kook.service`，目录 `/opt/albion-kook`，日志 `/var/log/albion-kook/bot.log`；线上继续使用旧 KOOK bot/token。2026-06-15 当前调试策略：本地 `.env` 临时改回旧 `KOOK_TOKEN`，服务器 `albion-kook.service` 已停服，本地跑完再恢复服务器；后续升级服务器时**不要替换服务器上的旧 `KOOK_TOKEN`**。若后续改回独立开发 bot token，本地可不停服务器直接调试。
+- 当前线上服务：阿里云新加坡 `aliyun_singapore` 上的 `albion-kook.service`，目录 `/opt/albion-kook`，日志 `/var/log/albion-kook/bot.log`；线上继续使用旧 KOOK bot/token。2026-06-15 22:55 已切回服务器运行 AI 高频露出版本，PID `1205474`，启动命令 `/opt/albion-kook/.venv/bin/python -m bot.main`；服务器 `.env` 已开启 AI 且保留旧 token/key。后续升级服务器时**不要替换服务器上的旧 `KOOK_TOKEN`**。若后续改回独立开发 bot token，本地可不停服务器直接调试。
 - 当前数据库概况（2026-06-15 复查）：`guild_binding=1`、`player_binding=2`、`pending_approval=5`、`regear_request=0`、`regear_reviewer_request=0`、`market_price_reference=6234`，`pragma integrity_check=ok`。`guild_binding.battle_report_channel_id` 已迁移，本机当前值为 `8139656704033247`。旧补装测试记录清理前已备份到 `data/backups/`；绑定活测的测试用户本地绑定和待审批行已删除。
 
 ## 已收口的关键决议（2026-06-14）
@@ -29,7 +29,7 @@
 - 文档入口：`README.md` 已更新为当前状态；`使用说明书.md` 已新增，覆盖管理员初始化、成员绑定、补装流程、自动任务、估值口径和运维排错。
 - AI 辅助：已按“受控 AI 服务 + 窄白名单只读路由”上线，使用 LongCat/OpenAI 兼容接口（当前模型 `LongCat-2.0-Preview`）。AI 当前会出现在 `/战报`、`/助手`、`/补装解释`、补装审核卡「AI 审核提示」和自动 ZvZ 战报卡「AI 摘要」；不进入绑定审批、补装审批、金额改写、发组/撤组或发放标记链路。普通成员通过 `/助手` 可查本人绑定状态、最近击杀/阵亡、本人补装状态，管理员/补装审核员可查全服补装队列，管理员可查频道配置概况。AI 事实包带 `schema_version/tool`，输出层拦截危险动作声明并脱敏疑似 Token/API Key；AI 回复凡提到时间必须标注口径：服务器/API 时间 UTC、数据库/服务器时间 UTC，或北京时间 UTC+8。
 - 版本号控制：当前版本 `1.0`，代码单一来源是 `bot/version.py`；`bot.main.ping_text()` 使用同一来源，测试见 `tests/test_version.py`。
-- 战报推送：`bot/albion/battle_report.py`、`bot/cards/battle_report_cards.py`、`bot/tasks/auto.py` 已接入聚合、卡片、AI 摘要、北京时间窗口、专属频道推送、本会最小人数阈值和 SQLite 持久去重；`/设置 战报推送频道`、`/设置 战报频道`、`/设置 战报本会最小人数` 已接入。2026-06-15 本机真实 KOOK 发送路径已确认测试战报只推到专属战报频道 `8139656704033247`，没有走统一/击杀频道 `5938739897296829` 或阵亡频道 `4201481428779754`，并写入 `battle_report_seen`；线上 systemd 自动窗口尚未运行验证，不要写成已上线稳定运行。
+- 战报推送：`bot/albion/battle_report.py`、`bot/cards/battle_report_cards.py`、`bot/tasks/auto.py` 已接入聚合、卡片、AI 摘要、北京时间窗口、专属频道推送、本会最小人数阈值和 SQLite 持久去重；`/设置 战报推送频道`、`/设置 战报频道`、`/设置 战报本会最小人数` 已接入。2026-06-15 本机真实 KOOK 发送路径已确认测试战报只推到专属战报频道 `8139656704033247`，没有走统一/击杀频道 `5938739897296829` 或阵亡频道 `4201481428779754`，并写入 `battle_report_seen`；22:55 已部署到线上 systemd，真实自动命中和 AI 摘要质量继续看日志和频道输出，不要提前写成已稳定命中。
 
 ## 坑点 / 注意
 
