@@ -1,10 +1,14 @@
 """配置加载：从环境变量 / .env 读取，不入库不进 git。"""
+import base64
+import hashlib
 import os
 import logging
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, find_dotenv, load_dotenv
 
-load_dotenv()
+_DOTENV_PATH = find_dotenv(usecwd=True)
+_DOTENV_VALUES = dotenv_values(_DOTENV_PATH) if _DOTENV_PATH else {}
+load_dotenv(_DOTENV_PATH or None)
 
 
 def _require(key: str) -> str:
@@ -60,6 +64,47 @@ def require_token() -> str:
     if not KOOK_TOKEN:
         raise RuntimeError("缺少 KOOK_TOKEN（见 .env.example）")
     return KOOK_TOKEN
+
+
+def _decode_token_bot_id(token: str) -> str:
+    parts = token.split("/")
+    if len(parts) < 2 or not parts[1]:
+        return "unknown"
+    encoded = parts[1]
+    padded = encoded + "=" * (-len(encoded) % 4)
+    try:
+        return base64.b64decode(padded).decode("utf-8")
+    except Exception:
+        return "unknown"
+
+
+def token_runtime_info(
+    token: str | None = None, *, env_file_token: str | None = None
+) -> dict[str, str]:
+    """返回可安全写入日志的 KOOK token 诊断信息。"""
+    actual = (token if token is not None else KOOK_TOKEN).strip()
+    env_value = (
+        env_file_token
+        if env_file_token is not None
+        else str(_DOTENV_VALUES.get("KOOK_TOKEN") or "")
+    ).strip()
+
+    if not actual:
+        source = "missing"
+    elif env_value and actual == env_value:
+        source = "env_file"
+    elif env_value:
+        source = "environment_overrides_env_file"
+    else:
+        source = "environment"
+
+    return {
+        "bot_id": _decode_token_bot_id(actual) if actual else "missing",
+        "fingerprint": hashlib.sha256(actual.encode("utf-8")).hexdigest()[:12]
+        if actual
+        else "missing",
+        "source": source,
+    }
 
 
 def setup_logging() -> None:

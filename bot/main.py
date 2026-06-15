@@ -55,7 +55,13 @@ def build_bot() -> Bot:
 
 def main() -> None:
     bot = build_bot()
-    log.info("机器人启动，连接 KOOK WebSocket...")
+    token_info = config.token_runtime_info()
+    log.info(
+        "机器人启动，连接 KOOK WebSocket... bot_id=%s token_fp=%s token_source=%s",
+        token_info["bot_id"],
+        token_info["fingerprint"],
+        token_info["source"],
+    )
     bot.run()
 
 
