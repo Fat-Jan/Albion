@@ -24,6 +24,7 @@ SLOTS = ["MainHand", "OffHand", "Head", "Armor", "Shoes", "Bag", "Cape", "Mount"
 # 挂单价常虚高于实际成交，按此折扣保守估。
 FALLBACK_DISCOUNT = 0.85
 FALLBACK_QUALITIES = (1, 2, 3, 4, 5)
+REFERENCE_EXTREME_MULTIPLIER = 3.0
 
 
 def _collect(victim: dict) -> list[tuple]:
@@ -120,6 +121,23 @@ def _fallback_price(fb: dict, type_: str, quality: int) -> float:
     return float(statistics.median(clean))
 
 
+def _reference_price(type_: str, quality: int) -> float:
+    if not type_ or not price_reference.is_reference_item(type_):
+        return 0.0
+    ref = repo.get_price_reference(type_, quality)
+    return float(ref["low_price"]) if ref else 0.0
+
+
+def _cap_extreme_fallback(unit: float, reference: float) -> float:
+    if reference <= 0:
+        return unit
+    if unit <= 0:
+        return reference
+    if unit > reference * REFERENCE_EXTREME_MULTIPLIER:
+        return reference
+    return unit
+
+
 async def estimate(event_or_victim: dict, market: Market, *, days: int = 7, primary: str = "Caerleon") -> dict:
     """估一次死亡的装备+背包价值（银币）。
 
@@ -134,7 +152,7 @@ async def estimate(event_or_victim: dict, market: Market, *, days: int = 7, prim
 
     items = [it for _, it in collected]
     types = sorted({it["Type"] for it in items if it.get("Type")})
-    quals = sorted({_norm_q(it.get("Quality", 1)) for it in items})
+    quals = sorted({_norm_q(it.get("Quality", 1)) for it in items} | set(FALLBACK_QUALITIES))
     rows = await _query_history(market, types, quals, days)
 
     price: dict = {}
@@ -167,15 +185,15 @@ async def estimate(event_or_victim: dict, market: Market, *, days: int = 7, prim
         t = it.get("Type")
         q = _norm_q(it.get("Quality", 1))
         cnt = it.get("Count", 1) or 1
+        ref_price = _reference_price(t, q)
         unit = _price_for(price, t, q, primary)
         if unit <= 0 and t:
             unit = _other_quality_price(price, t, primary) * FALLBACK_DISCOUNT
         if unit <= 0 and t:
             unit = _fallback_price(fb, t, q) * FALLBACK_DISCOUNT
-        if unit <= 0 and t and price_reference.is_reference_item(t):
-            ref = repo.get_price_reference(t, q)
-            if ref:
-                unit = float(ref["low_price"])
+            unit = _cap_extreme_fallback(unit, ref_price)
+        if unit <= 0:
+            unit = ref_price
         unit_int = int(unit)
         val = unit_int * int(cnt)
         if slot:

@@ -181,6 +181,48 @@ class PriceReferenceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["total"], 255000)
         self.assertEqual(result["items"][0]["unit"], 255000)
 
+    async def test_valuation_queries_other_quality_history_when_same_quality_missing(self):
+        event = {
+            "Victim": {
+                "Equipment": {
+                    "MainHand": {"Type": "T5_2H_DUALMACE_AVALON@2", "Quality": 2, "Count": 1}
+                }
+            }
+        }
+        market = StrictOtherQualityHistoryMarket()
+
+        result = await valuation.estimate(event, market)
+
+        self.assertIn(3, market.history_qualities)
+        self.assertEqual(result["total"], 255000)
+        self.assertEqual(result["items"][0]["unit"], 255000)
+
+    async def test_valuation_caps_extreme_live_fallback_with_weapon_reference(self):
+        repo.upsert_price_references(
+            [
+                {
+                    "item_id": "T4_2H_SHAPESHIFTER_AVALON",
+                    "quality": 1,
+                    "slot_group": "mainhand",
+                    "low_price": 99999,
+                    "sample_count": 1,
+                    "source": "test",
+                }
+            ]
+        )
+        event = {
+            "Victim": {
+                "Equipment": {
+                    "MainHand": {"Type": "T4_2H_SHAPESHIFTER_AVALON", "Quality": 1, "Count": 1}
+                }
+            }
+        }
+
+        result = await valuation.estimate(event, ExtremeLiveFallbackMarket())
+
+        self.assertEqual(result["total"], 99999)
+        self.assertEqual(result["items"][0]["unit"], 99999)
+
     async def test_valuation_total_matches_equipment_item_values_after_rounding(self):
         event = {
             "Victim": {
@@ -287,6 +329,42 @@ class OtherQualityHistoryMarket:
 
     async def prices(self, items, locations=None, qualities=None):
         return []
+
+
+class StrictOtherQualityHistoryMarket:
+    def __init__(self):
+        self.history_qualities = []
+
+    async def history(self, items, locations=None, qualities=None, time_scale=24):
+        self.history_qualities = [int(q) for q in qualities]
+        if 3 not in self.history_qualities:
+            return []
+        return [
+            {
+                "item_id": "T5_2H_DUALMACE_AVALON@2",
+                "quality": 3,
+                "location": "Martlock",
+                "data": [{"avg_price": 300000}],
+            }
+        ]
+
+    async def prices(self, items, locations=None, qualities=None):
+        return []
+
+
+class ExtremeLiveFallbackMarket:
+    async def history(self, items, locations=None, qualities=None, time_scale=24):
+        return []
+
+    async def prices(self, items, locations=None, qualities=None):
+        return [
+            {
+                "item_id": "T4_2H_SHAPESHIFTER_AVALON",
+                "quality": 1,
+                "city": "Caerleon",
+                "sell_price_min": 9999999,
+            }
+        ]
 
 
 class FractionalFallbackMarket:
