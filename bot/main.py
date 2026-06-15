@@ -46,9 +46,9 @@ def build_bot() -> Bot:
     admin.register(bot, gi)
     register.register(bot, gi)
     query.register(bot, gi, mk)
-    regear.register(bot, gi, mk)
+    regear.register(bot, gi, mk, ai_service)
     ai.register(bot, ai_service, gi, mk)
-    auto.register(bot, gi, mk)
+    auto.register(bot, gi, mk, ai_service)
 
     return bot
 

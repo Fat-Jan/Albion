@@ -610,6 +610,30 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("#1", channels["apply"].messages[-1])
         self.assertIn("已提交补装申请", channels["apply"].messages[-1])
 
+    async def test_regear_pick_review_card_includes_ai_review_hint_when_available(self):
+        repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "regear_review_channel_id", "review")
+        repo.set_player_binding("user-1", "guild", "player-1", "Latano")
+        channels = {"apply": FakeChannel("apply"), "review": FakeChannel("review")}
+        bot = FakeBot(channels, FakeGuild(FakeUser([], user_id="user-1")))
+        ai_service = FakeAIService("AI 参考：主手和副手价格正常；背包不计补装。")
+
+        await regear._handle_pick(
+            bot,
+            FakeGameInfo(sample_regear_event("event-1")),
+            FakeMarket(),
+            {"eid": "event-1"},
+            "guild",
+            "user-1",
+            channels["apply"],
+            ai_service=ai_service,
+        )
+
+        review_text = card_text(channels["review"].messages[0])
+        self.assertEqual(ai_service.regear_calls[0]["request"]["id"], 1)
+        self.assertIn("**AI 审核提示**", review_text)
+        self.assertIn("主手和副手价格正常", review_text)
+
     async def test_regear_processed_click_reports_current_status(self):
         repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
         repo.set_setting("guild", "regear_reviewer_role_ids", "reviewer")
@@ -931,6 +955,16 @@ class FakeMarket:
 
     async def prices(self, items, locations=None, qualities=None):
         return []
+
+
+class FakeAIService:
+    def __init__(self, text):
+        self.text = text
+        self.regear_calls = []
+
+    async def explain_regear(self, facts):
+        self.regear_calls.append(facts)
+        return self.text
 
 
 class FakeUser:

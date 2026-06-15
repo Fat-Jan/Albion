@@ -6,7 +6,7 @@ import logging
 import re
 from typing import Protocol
 
-from bot.ai.context import battles_context
+from bot.ai.context import battle_report_context, battles_context
 
 log = logging.getLogger(__name__)
 
@@ -98,6 +98,18 @@ class AIService:
             f"JSON 事实包：{json.dumps(facts, ensure_ascii=False, separators=(',', ':'))}"
         )
         return await self._complete(prompt, max_tokens=650)
+
+    async def summarize_battle_report(self, report: dict) -> str:
+        facts = battle_report_context(report)
+        prompt = (
+            "请基于下面 JSON 事实包为自动推送的 ZvZ 战报写一段短摘要。"
+            "只总结本会参战规模、击杀/阵亡、高光玩家和榜单里可见的对手；"
+            "不要编造地图、战术、集结原因或 API 未提供的信息。"
+            "不得给出审批、发放、身份组或补装处理结论。\n"
+            "如果提到时间，优先同时写出服务器/API 时间 UTC 和北京时间 UTC+8。\n"
+            f"JSON 事实包：{json.dumps(facts, ensure_ascii=False, separators=(',', ':'))}"
+        )
+        return await self._complete(prompt, max_tokens=360)
 
     async def answer_readonly_query(self, question: str, facts: dict) -> str:
         prompt = (

@@ -5,7 +5,7 @@ from bot.cards.layout import interleave_dividers, kmd_section
 from bot.cards.query_cards import beijing, fmt
 
 
-def battle_report_card(report: dict) -> CardMessage:
+def battle_report_card(report: dict, ai_summary: str | None = None) -> CardMessage:
     battle_id = report.get("battle_id") or "?"
     guild_name = report.get("guild_name") or "本会"
     started = _time_line(report.get("start_time", ""))
@@ -17,28 +17,34 @@ def battle_report_card(report: dict) -> CardMessage:
     if guild_row.get("kills") or guild_row.get("deaths"):
         guild_lines.append(f"击杀/阵亡 {guild_row.get('kills', 0)}/{guild_row.get('deaths', 0)}")
 
+    sections = [
+        kmd_section(
+            "战场概况",
+            [
+                f"战役 `{battle_id}`",
+                started,
+                (
+                    f"整场 {report.get('total_players', 0)} 人"
+                    f"　击杀 {report.get('total_kills', 0)}"
+                    f"　总声望 `{fmt(report.get('total_fame', 0))}`"
+                ),
+            ],
+        ),
+        kmd_section("本会表现", guild_lines),
+    ]
+    if ai_summary:
+        sections.append(kmd_section("AI 摘要", _summary_lines(ai_summary)))
+    sections.extend(
+        [
+            Module.Section(Element.Text(_entity_block("公会战力榜", report.get("top_guilds") or []), Types.Text.KMD)),
+            Module.Section(Element.Text(_entity_block("联盟战力榜", report.get("top_alliances") or []), Types.Text.KMD)),
+            Module.Section(Element.Text(_highlight_block(report.get("player_highlights") or {}), Types.Text.KMD)),
+        ]
+    )
+
     card = Card(
         Module.Header(f"📯 {guild_name} ZvZ 战报"),
-        *interleave_dividers(
-            [
-                kmd_section(
-                    "战场概况",
-                    [
-                        f"战役 `{battle_id}`",
-                        started,
-                        (
-                            f"整场 {report.get('total_players', 0)} 人"
-                            f"　击杀 {report.get('total_kills', 0)}"
-                            f"　总声望 `{fmt(report.get('total_fame', 0))}`"
-                        ),
-                    ],
-                ),
-                kmd_section("本会表现", guild_lines),
-                Module.Section(Element.Text(_entity_block("公会战力榜", report.get("top_guilds") or []), Types.Text.KMD)),
-                Module.Section(Element.Text(_entity_block("联盟战力榜", report.get("top_alliances") or []), Types.Text.KMD)),
-                Module.Section(Element.Text(_highlight_block(report.get("player_highlights") or {}), Types.Text.KMD)),
-            ]
-        ),
+        *interleave_dividers(sections),
     )
     url = report.get("battle_url")
     if url:
@@ -48,6 +54,10 @@ def battle_report_card(report: dict) -> CardMessage:
             )
         )
     return CardMessage(card)
+
+
+def _summary_lines(text: str) -> list[str]:
+    return [line.strip() for line in str(text).splitlines() if line.strip()][:6]
 
 
 def _time_line(raw: str) -> str:

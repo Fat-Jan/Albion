@@ -148,6 +148,36 @@ class BattleReportAutoTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bot.client.channels["battle-channel"].send_count, 1)
         self.assertTrue(repo.has_seen_battle_report("guild", "123"))
 
+    async def test_battle_report_tick_includes_ai_summary_when_available(self):
+        repo.bind_guild("guild", "albion-guild", "Mika", "admin")
+        repo.set_setting("guild", "battle_report_channel_id", "battle-channel")
+        repo.set_setting("guild", "battle_report_min_guild_players", 2)
+        bot = FakeBot()
+        gi = FakeBattleGameInfo(_battle_detail(), _battle_events())
+        bb = FakeAlbionBB(
+            [
+                {
+                    "albionId": "123",
+                    "guilds": [{"name": "Mika", "killFame": 32000}],
+                }
+            ]
+        )
+        ai_service = FakeAIService("本会参战 3 人，击杀声望稳定，Bob 阵亡压力较高。")
+
+        await auto._run_battle_report_tick(
+            bot,
+            gi,
+            bb,
+            now=datetime(2026, 6, 14, 6, 30),
+            ai_service=ai_service,
+        )
+
+        message = bot.client.channels["battle-channel"].last_message
+        text = card_text(message)
+        self.assertEqual(ai_service.report_calls[0]["guild_name"], "Mika")
+        self.assertIn("**AI 摘要**", text)
+        self.assertIn("本会参战 3 人", text)
+
     async def test_battle_report_tick_skips_unconfigured_window_and_seen(self):
         repo.bind_guild("guild", "albion-guild", "Mika", "admin")
         repo.set_setting("guild", "battle_report_channel_id", "battle-channel")
@@ -336,6 +366,16 @@ class FakeBattleGameInfo:
 
     async def battle_events(self, battle_id, limit=51, offset=0):
         return self.events
+
+
+class FakeAIService:
+    def __init__(self, summary):
+        self.summary = summary
+        self.report_calls = []
+
+    async def summarize_battle_report(self, report):
+        self.report_calls.append(report)
+        return self.summary
 
 
 class FakeBot:

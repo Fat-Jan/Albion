@@ -9,6 +9,8 @@ import logging
 from khl import Bot, EventTypes, Message
 
 from bot import perms
+from bot.ai.context import regear_explain_context
+from bot.ai.service import AIService
 from bot.albion import valuation
 from bot.albion.gameinfo import GameInfo
 from bot.albion.market import Market
@@ -220,7 +222,7 @@ async def _can_manage_regear(guild, user, guild_binding: dict | None = None) -> 
     return _has_regear_reviewer_role(user, binding)
 
 
-def register(bot: Bot, gi: GameInfo, mk: Market) -> None:
+def register(bot: Bot, gi: GameInfo, mk: Market, ai_service: AIService | None = None) -> None:
     @bot.command(name="补装")
     async def regear_cmd(msg: Message, *args):
         if args:
@@ -322,7 +324,7 @@ def register(bot: Bot, gi: GameInfo, mk: Market) -> None:
         if act == "regear_detail":
             await _handle_detail(b, gi, mk, val, channel)
         elif act == "regear_pick":
-            await _handle_pick(b, gi, mk, val, guild_id, clicker, channel)
+            await _handle_pick(b, gi, mk, val, guild_id, clicker, channel, ai_service=ai_service)
         elif act in ("regear_reviewer_approve", "regear_reviewer_reject"):
             await _handle_reviewer_request_review(b, act, val, guild_id, clicker, channel)
         else:
@@ -340,6 +342,22 @@ async def _load_regear_valuation(regear_row: dict, gi: GameInfo, mk: Market) -> 
     except Exception as exc:
         log.warning("补装通知明细加载失败 request=%s: %s", regear_row.get("id"), exc)
         return None, None
+
+
+async def _ai_regear_hint(
+    ai_service: AIService | None,
+    regear_row: dict,
+    event: dict,
+    valuation_result: dict,
+) -> str:
+    if not ai_service:
+        return ""
+    try:
+        facts = regear_explain_context(regear_row, event, valuation_result)
+        return await ai_service.explain_regear(facts)
+    except Exception as exc:
+        log.warning("生成 AI 补装审核提示失败 request=%s: %s", regear_row.get("id"), exc)
+        return ""
 
 
 async def _update_regear_source_card(b: Bot, regear_row: dict, card) -> bool:
@@ -502,7 +520,7 @@ async def _handle_detail(b, gi, mk, val, channel):
     await channel.send(death_detail_card(victim_name, ev, result, battle_players))
 
 
-async def _handle_pick(b, gi, mk, val, guild_id, clicker, channel):
+async def _handle_pick(b, gi, mk, val, guild_id, clicker, channel, ai_service: AIService | None = None):
     binding = repo.get_player_binding(clicker, guild_id)
     if not binding:
         await channel.send("请先 /绑定 角色再申请补装。")
@@ -524,10 +542,25 @@ async def _handle_pick(b, gi, mk, val, guild_id, clicker, channel):
     rid = repo.create_regear(
         guild_id, clicker, binding["albion_player_id"], str(eid), result["total"]
     )
+    rr = repo.get_regear(rid) or {
+        "id": rid,
+        "status": "pending",
+        "est_value": result["total"],
+        "event_id": str(eid),
+    }
+    ai_hint = await _ai_regear_hint(ai_service, rr, ev, result)
     try:
         review_channel = await b.client.fetch_public_channel(review_channel_id)
         sent = await review_channel.send(
-            regear_apply_card(rid, clicker, binding["albion_player_name"], ev, result["total"], result)
+            regear_apply_card(
+                rid,
+                clicker,
+                binding["albion_player_name"],
+                ev,
+                result["total"],
+                result,
+                ai_hint=ai_hint,
+            )
         )
         msg_id = sent.get("msg_id") if isinstance(sent, dict) else None
         if msg_id:

@@ -5,6 +5,7 @@ import unittest
 from bot import config
 from bot.ai.client import AIClient, AIClientConfig
 from bot.ai.context import (
+    battle_report_context,
     battles_context,
     binding_status_context,
     guild_config_context,
@@ -162,6 +163,34 @@ class AIServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("服务器/API 时间 UTC", prompt)
         self.assertIn("北京时间 UTC+8", prompt)
         self.assertIn("不要输出未标注的时间", prompt)
+
+    async def test_summarize_battle_report_uses_structured_fact_pack(self):
+        client = FakeAIClient("本会参战 3 人，Bob 阵亡压力较高。")
+        service = AIService(client, enabled=True)
+
+        text = await service.summarize_battle_report(
+            {
+                "battle_id": "123",
+                "battle_url": "https://east.albionbb.com/battles/123",
+                "guild_name": "Mika",
+                "start_time": "2026-06-14T10:00:00",
+                "total_players": 6,
+                "total_kills": 8,
+                "total_fame": 1234567,
+                "guild_players": 3,
+                "guild_kill_fame": 32000,
+                "guild_row": {"kills": 4, "deaths": 3},
+                "top_guilds": [{"name": "Mika", "players": 3, "kills": 4, "deaths": 3}],
+                "top_alliances": [{"name": "5I7", "players": 3, "kills": 4, "deaths": 3}],
+                "player_highlights": {"most_deaths": {"name": "Bob", "deaths": 2}},
+            }
+        )
+
+        self.assertIn("本会参战", text)
+        self.assertEqual(client.calls[0]["max_tokens"], 360)
+        prompt = "\n".join(m["content"] for m in client.calls[0]["messages"])
+        self.assertIn("battle_report_summary", prompt)
+        self.assertIn("不要编造地图、战术", prompt)
 
     async def test_service_blocks_unsafe_action_claims_and_redacts_secrets(self):
         client = FakeAIClient("已批准 #1，KOOK_TOKEN=secret，Bearer abc123，ak_2Ia6kF9TM5q36dQ7G27382BO2cl7B")
@@ -408,6 +437,31 @@ class AIContextTest(unittest.TestCase):
             start_time["beijing_time_utc8"],
             "2026-06-14 18:00 UTC+8（北京时间）",
         )
+
+    def test_battle_report_context_is_safe_and_readonly(self):
+        context = battle_report_context(
+            {
+                "battle_id": "123",
+                "battle_url": "https://east.albionbb.com/battles/123",
+                "guild_name": "Mika",
+                "start_time": "2026-06-14T10:00:00",
+                "total_players": 6,
+                "total_kills": 8,
+                "total_fame": 1234567,
+                "guild_players": 3,
+                "guild_kill_fame": 32000,
+                "guild_row": {"kills": 4, "deaths": 3},
+                "top_guilds": [{"name": "Mika", "players": 3, "kills": 4, "deaths": 3}],
+                "top_alliances": [{"name": "5I7", "players": 3, "kills": 4, "deaths": 3}],
+                "player_highlights": {"most_deaths": {"name": "Bob", "deaths": 2}},
+            }
+        )
+
+        self.assertEqual(context["tool"], "battle_report_summary")
+        self.assertEqual(context["guild"]["players"], 3)
+        self.assertEqual(context["leaders"]["guilds"][0]["name"], "Mika")
+        self.assertEqual(context["highlights"]["most_deaths"]["name"], "Bob")
+        self.assertTrue(context["policy"]["readonly_summary_only"])
 
     def test_regear_status_context_labels_database_times(self):
         context = regear_status_context(

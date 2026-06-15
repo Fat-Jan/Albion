@@ -239,32 +239,34 @@ def regear_apply_card(
     event: dict,
     est_value: int,
     valuation_result: dict | None = None,
+    ai_hint: str | None = None,
 ) -> CardMessage:
     """补装审批卡片，发到审批频道。"""
     detail_lines = _equipment_detail_lines(valuation_result)
     pass_val = json.dumps({"act": "regear_approve", "rid": regear_id})
-    card = Card(
-        *interleave_dividers(
+    sections = [
+        kmd_section(
+            "审核事项",
             [
-                kmd_section(
-                    "审核事项",
-                    [
-                        f"申请号：`#{regear_id}`",
-                        f"当前状态：`待审批`",
-                        f"申请人：(met){kook_user_id}(met)　角色：`{player_name}`",
-                    ],
-                ),
-                kmd_section("死亡事件", _event_summary_lines(event)),
-                kmd_section(
-                    "补装口径",
-                    [
-                        f"补装金额 ≈ {_silver(est_value)} 银（只计算穿戴装备）",
-                        "背包物品不计入补装；仅用于死亡详情/损失展示。",
-                    ],
-                ),
-                kmd_section("装备明细", detail_lines or ["（暂无装备估值明细）"]),
-            ]
+                f"申请号：`#{regear_id}`",
+                f"当前状态：`待审批`",
+                f"申请人：(met){kook_user_id}(met)　角色：`{player_name}`",
+            ],
         ),
+        kmd_section("死亡事件", _event_summary_lines(event)),
+        kmd_section(
+            "补装口径",
+            [
+                f"补装金额 ≈ {_silver(est_value)} 银（只计算穿戴装备）",
+                "背包物品不计入补装；仅用于死亡详情/损失展示。",
+            ],
+        ),
+    ]
+    if ai_hint:
+        sections.append(kmd_section("AI 审核提示", _ai_hint_lines(ai_hint)))
+    sections.append(kmd_section("装备明细", detail_lines or ["（暂无装备估值明细）"]))
+    card = Card(
+        *interleave_dividers(sections),
         Module.ActionGroup(
             Element.Button("通过", pass_val, Types.Click.RETURN_VAL, Types.Theme.SUCCESS),
         ),
@@ -286,6 +288,10 @@ def regear_apply_card(
     )
     card.append(Module.Context(Element.Text(f"自定义拒绝理由：`/补装 拒绝 #{regear_id} 理由文本`", Types.Text.KMD)))
     return CardMessage(card)
+
+
+def _ai_hint_lines(text: str) -> list[str]:
+    return [line.strip() for line in str(text).splitlines() if line.strip()][:6]
 
 
 def regear_reviewer_apply_card(request_id: int, kook_user_id: str) -> CardMessage:

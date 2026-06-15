@@ -144,6 +144,40 @@ def battles_context(guild_name: str, battles: list[dict]) -> dict:
     }
 
 
+def battle_report_context(report: dict) -> dict:
+    highlights = report.get("player_highlights") or {}
+    return {
+        **_base("battle_report_summary"),
+        "battle": {
+            "id": report.get("battle_id"),
+            "url": report.get("battle_url"),
+            "start_time": _api_time(report.get("start_time")),
+            "total_players": int(report.get("total_players") or 0),
+            "total_kills": int(report.get("total_kills") or 0),
+            "total_fame": int(report.get("total_fame") or 0),
+        },
+        "guild": {
+            "name": report.get("guild_name"),
+            "players": int(report.get("guild_players") or 0),
+            "kill_fame": int(report.get("guild_kill_fame") or 0),
+            "kills": int((report.get("guild_row") or {}).get("kills") or 0),
+            "deaths": int((report.get("guild_row") or {}).get("deaths") or 0),
+        },
+        "leaders": {
+            "guilds": _ranking_rows(report.get("top_guilds") or []),
+            "alliances": _ranking_rows(report.get("top_alliances") or []),
+        },
+        "highlights": {
+            key: _player_highlight_row(highlights.get(key))
+            for key in ("most_kills", "top_kill_fame", "most_deaths", "top_death_fame")
+        },
+        "policy": {
+            "readonly_summary_only": True,
+            "ai_may_not_infer_unprovided_tactics": True,
+        },
+    }
+
+
 def binding_status_context(
     guild_binding: dict | None,
     player_binding: dict | None,
@@ -247,6 +281,32 @@ def _configured_value(value: object) -> dict[str, object]:
 
 def _split_csv(raw: object) -> list[str]:
     return [p.strip() for p in str(raw or "").split(",") if p.strip()]
+
+
+def _ranking_rows(rows: list[dict]) -> list[dict]:
+    return [
+        {
+            "name": row.get("name"),
+            "alliance": row.get("alliance"),
+            "players": int(row.get("players") or 0),
+            "kills": int(row.get("kills") or 0),
+            "deaths": int(row.get("deaths") or 0),
+            "kill_fame": int(row.get("kill_fame") or 0),
+        }
+        for row in rows[:5]
+    ]
+
+
+def _player_highlight_row(row: dict | None) -> dict | None:
+    if not row:
+        return None
+    return {
+        "name": row.get("name"),
+        "kills": int(row.get("kills") or 0),
+        "deaths": int(row.get("deaths") or 0),
+        "kill_fame": int(row.get("kill_fame") or 0),
+        "death_fame": int(row.get("death_fame") or 0),
+    }
 
 
 def _event_summary(event: dict, *, opponent_key: str) -> dict:

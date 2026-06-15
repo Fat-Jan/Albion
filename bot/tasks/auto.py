@@ -16,6 +16,7 @@ from typing import Any
 
 from khl import Bot
 
+from bot.ai.service import AIService
 from bot.albion.battle_report import build_battle_report
 from bot.albion import valuation
 from bot.albion.gameinfo import GameInfo
@@ -159,6 +160,7 @@ async def _run_battle_report_tick(
     bb_client,
     *,
     now: datetime | None = None,
+    ai_service: AIService | None = None,
 ) -> None:
     if not _should_run_battle_report(now):
         return
@@ -198,16 +200,27 @@ async def _run_battle_report_tick(
                 continue
             if report.get("guild_players", 0) < min_guild_players:
                 continue
+            ai_summary = await _ai_battle_report_summary(ai_service, report)
             try:
                 channel = await bot.client.fetch_public_channel(gb["battle_report_channel_id"])
-                await channel.send(battle_report_card(report))
+                await channel.send(battle_report_card(report, ai_summary=ai_summary))
             except Exception as exc:
                 log.warning("推送战报失败 battle=%s guild=%s: %s", battle_id, guild_name, exc)
                 continue
             repo.mark_battle_report_seen(kgid, battle_id)
 
 
-def register(bot: Bot, gi: GameInfo, mk: Market) -> None:
+async def _ai_battle_report_summary(ai_service: AIService | None, report: dict) -> str:
+    if not ai_service:
+        return ""
+    try:
+        return await ai_service.summarize_battle_report(report)
+    except Exception as exc:
+        log.warning("生成 AI 战报摘要失败 battle=%s: %s", report.get("battle_id"), exc)
+        return ""
+
+
+def register(bot: Bot, gi: GameInfo, mk: Market, ai_service: AIService | None = None) -> None:
     @bot.task.add_interval(seconds=BROADCAST_CHECK_INTERVAL_SEC)
     async def death_broadcast():
         global _last_death_broadcast_at, _primed
@@ -327,4 +340,4 @@ def register(bot: Bot, gi: GameInfo, mk: Market) -> None:
 
     @bot.task.add_interval(minutes=BATTLE_REPORT_INTERVAL_MIN)
     async def battle_report():
-        await _run_battle_report_tick(bot, gi, gi.c)
+        await _run_battle_report_tick(bot, gi, gi.c, ai_service=ai_service)
