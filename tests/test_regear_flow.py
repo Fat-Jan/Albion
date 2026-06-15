@@ -4,7 +4,14 @@ import unittest
 from datetime import datetime, timedelta
 
 from bot import config
-from bot.cards.regear_cards import death_detail_card, death_select_card, regear_apply_card
+from bot.cards.query_cards import KILLBOARD_URL
+from bot.cards.regear_cards import (
+    death_detail_card,
+    death_select_card,
+    regear_apply_card,
+    regear_approved_card,
+    regear_queue_card,
+)
 from bot.commands import admin, regear
 from bot.tasks import auto
 from bot.store import repo
@@ -23,6 +30,16 @@ def card_text(card_message) -> str:
     return "\n".join(texts)
 
 
+def card_buttons(card_message) -> list[dict]:
+    buttons = []
+    for card in card_message:
+        for module in card.get("modules", []):
+            buttons.extend(
+                e for e in module.get("elements", []) if isinstance(e, dict) and e.get("type") == "button"
+            )
+    return buttons
+
+
 class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -37,7 +54,7 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
     def test_regear_schema_has_paid_tracking_columns(self):
         rid = repo.create_regear("guild", "user", "player", "event-1", 100)
         repo.set_regear_status(rid, "approved", "admin")
-        repo.set_regear_paid(rid, "payer")
+        repo.set_regear_paid(rid, "payer", "silver", "等额银币")
 
         row = repo.get_regear(rid)
 
@@ -46,6 +63,19 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(row["reviewed_at"])
         self.assertEqual(row["paid_by"], "payer")
         self.assertIsNotNone(row["paid_at"])
+        self.assertEqual(row["payout_method"], "silver")
+        self.assertEqual(row["payout_note"], "等额银币")
+
+    def test_regear_schema_records_reject_reason(self):
+        rid = repo.create_regear("guild", "user", "player", "event-1", 100)
+
+        repo.set_regear_rejected(rid, "admin", "重复申请")
+
+        row = repo.get_regear(rid)
+        self.assertEqual(row["status"], "rejected")
+        self.assertEqual(row["reviewed_by"], "admin")
+        self.assertIsNotNone(row["reviewed_at"])
+        self.assertEqual(row["reject_reason"], "重复申请")
 
     def test_guild_binding_has_dedicated_regear_channel_setting(self):
         repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
@@ -273,15 +303,35 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_regear_paid_notice_keeps_public_notification_clean(self):
-        row = {"id": 123, "kook_user_id": "user-1", "est_value": 999999, "event_id": "event-1"}
+        row = {
+            "id": 123,
+            "kook_user_id": "user-1",
+            "est_value": 999999,
+            "event_id": "event-1",
+            "status": "paid",
+            "paid_at": "2026-06-15 12:00:00",
+            "payout_method": "silver",
+        }
 
         text = regear._regear_paid_notice(row)
 
         self.assertIn("(met)user-1(met)", text)
         self.assertIn("#123", text)
-        self.assertIn("已完成", text)
+        self.assertIn("已发放", text)
+        self.assertIn("处理时间", text)
+        self.assertIn("等额银币", text)
         self.assertNotIn("999", text)
         self.assertNotIn("event-1", text)
+
+    def test_regear_rejected_notice_mentions_reason_and_user(self):
+        row = {"id": 123, "kook_user_id": "user-1", "status": "rejected", "reject_reason": "重复申请"}
+
+        text = regear._regear_rejected_notice(row)
+
+        self.assertIn("(met)user-1(met)", text)
+        self.assertIn("#123", text)
+        self.assertIn("已拒绝", text)
+        self.assertIn("重复申请", text)
 
     def test_admin_usage_includes_split_regear_center_commands(self):
         self.assertIn("/设置 补装初始化频道", admin.SETTING_USAGE)
@@ -317,15 +367,145 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
 
     def test_regear_apply_card_explains_inventory_is_excluded(self):
         event = {
+            "EventId": "12345",
             "TimeStamp": "2026-06-14T10:00:00",
-            "Victim": {"AverageItemPower": 1200},
+            "TotalVictimKillFame": 99000,
+            "numberOfParticipants": 3,
+            "Victim": {
+                "AverageItemPower": 1200,
+                "Equipment": {
+                    "MainHand": {"Type": "T8_MAIN_SPEAR_KEEPER@1", "Quality": 4}
+                },
+            },
+            "Killer": {"Name": "killer", "GuildName": "enemy"},
+        }
+        result = {
+            "total": 1165632,
+            "items": [
+                {"slot": "MainHand", "type": "T8_MAIN_SPEAR_KEEPER@1", "quality": 4, "count": 1, "value": 1165632},
+            ],
         }
 
-        text = card_text(regear_apply_card(1, "user", "Latano", event, 1165632))
+        card = regear_apply_card(1, "user", "Latano", event, 1165632, result)
+        text = card_text(card)
+        buttons = card_buttons(card)
 
         self.assertIn("补装金额 ≈ 1,165,632 银", text)
         self.assertIn("只计算穿戴装备", text)
         self.assertIn("背包物品不计入补装", text)
+        self.assertIn("被 `killer` [enemy] 击杀", text)
+        self.assertIn("击杀声望", text)
+        self.assertIn("参与人数", text)
+        self.assertIn("T8.1", text)
+        self.assertTrue(any(b["value"] == KILLBOARD_URL.format(eid="12345") for b in buttons))
+        self.assertTrue(any("重复申请" in b.get("value", "") for b in buttons))
+        self.assertTrue(any("非补装范围" in b.get("value", "") for b in buttons))
+
+    def test_regear_approved_card_shows_details_and_payout_methods(self):
+        row = {
+            "id": 123,
+            "kook_user_id": "user-1",
+            "event_id": "12345",
+            "est_value": 1165632,
+            "created_at": "2026-06-14 10:01:00",
+            "reviewed_at": "2026-06-14 10:02:00",
+            "reviewed_by": "admin",
+        }
+        event = {
+            "EventId": "12345",
+            "TimeStamp": "2026-06-14T10:00:00",
+            "TotalVictimKillFame": 99000,
+            "numberOfParticipants": 3,
+            "Victim": {
+                "AverageItemPower": 1200,
+                "Equipment": {
+                    "MainHand": {"Type": "T8_MAIN_SPEAR_KEEPER@1", "Quality": 4}
+                },
+            },
+            "Killer": {"Name": "killer", "GuildName": "enemy"},
+        }
+        result = {
+            "total": 1165632,
+            "items": [
+                {"slot": "MainHand", "type": "T8_MAIN_SPEAR_KEEPER@1", "quality": 4, "count": 1, "value": 1165632},
+            ],
+        }
+
+        card = regear_approved_card(row, event, result)
+        text = card_text(card)
+        buttons = card_buttons(card)
+
+        self.assertIn("补装已通过，等待发放", text)
+        self.assertIn("审核时间", text)
+        self.assertIn("被 `killer` [enemy] 击杀", text)
+        self.assertIn("T8.1", text)
+        self.assertTrue(any(b["value"] == KILLBOARD_URL.format(eid="12345") for b in buttons))
+        self.assertTrue(any('"method": "silver"' in b.get("value", "") for b in buttons))
+        self.assertTrue(any('"method": "equipment"' in b.get("value", "") for b in buttons))
+        self.assertTrue(any('"method": "item"' in b.get("value", "") for b in buttons))
+
+    def test_regear_queue_card_paid_shortcuts_include_all_payout_methods(self):
+        card = regear_queue_card(
+            "补装待发放",
+            [{"id": 123, "status": "approved", "kook_user_id": "user-1", "est_value": 1000, "event_id": "event-1"}],
+        )
+        buttons = card_buttons(card)
+
+        self.assertTrue(any('"method": "silver"' in b.get("value", "") for b in buttons))
+        self.assertTrue(any('"method": "equipment"' in b.get("value", "") for b in buttons))
+        self.assertTrue(any('"method": "item"' in b.get("value", "") for b in buttons))
+
+    def test_regear_processed_text_includes_status_time_and_reason_or_method(self):
+        rejected = {
+            "id": 1,
+            "status": "rejected",
+            "kook_user_id": "user-1",
+            "reviewed_at": "2026-06-15 10:00:00",
+            "reviewed_by": "admin",
+            "reject_reason": "装备异常",
+        }
+        paid = {
+            "id": 2,
+            "status": "paid",
+            "kook_user_id": "user-2",
+            "paid_at": "2026-06-15 11:00:00",
+            "paid_by": "payer",
+            "payout_method": "equipment",
+        }
+
+        self.assertIn("已拒绝", regear._regear_processed_text(rejected))
+        self.assertIn("装备异常", regear._regear_processed_text(rejected))
+        self.assertIn("2026-06-15 10:00:00", regear._regear_processed_text(rejected))
+        self.assertIn("已发放", regear._regear_processed_text(paid))
+        self.assertIn("原样装备", regear._regear_processed_text(paid))
+        self.assertIn("2026-06-15 11:00:00", regear._regear_processed_text(paid))
+
+    def test_regear_status_text_includes_processing_details(self):
+        rows = [
+            {
+                "id": 1,
+                "status": "paid",
+                "est_value": 1000,
+                "paid_at": "2026-06-15 11:00:00",
+                "payout_method": "silver",
+            },
+            {
+                "id": 2,
+                "status": "rejected",
+                "est_value": 2000,
+                "reviewed_at": "2026-06-15 12:00:00",
+                "reject_reason": "证据不足",
+            },
+        ]
+
+        text = regear._regear_status_text(rows)
+
+        self.assertIn("已发放", text)
+        self.assertIn("等额银币", text)
+        self.assertIn("2026-06-15 11:00:00", text)
+        self.assertIn("已拒绝", text)
+        self.assertIn("证据不足", text)
+        self.assertIn("2026-06-15 12:00:00", text)
 
     def test_regear_death_detail_card_labels_total_as_regear_amount(self):
         event = {

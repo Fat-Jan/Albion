@@ -365,16 +365,37 @@ def set_regear_status(regear_id: int, status: str, reviewed_by: str) -> None:
         conn.close()
 
 
-def set_regear_paid(regear_id: int, paid_by: str) -> None:
+def set_regear_rejected(regear_id: int, reviewed_by: str, reason: str) -> None:
     conn = get_conn()
     try:
         conn.execute(
             """
             UPDATE regear_request
-            SET status='paid', paid_by=?, paid_at=datetime('now')
+            SET status='rejected', reviewed_by=?, reviewed_at=datetime('now'), reject_reason=?
             WHERE id=?
             """,
-            (paid_by, regear_id),
+            (reviewed_by, reason, regear_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def set_regear_paid(
+    regear_id: int,
+    paid_by: str,
+    payout_method: str | None = None,
+    payout_note: str | None = None,
+) -> None:
+    conn = get_conn()
+    try:
+        conn.execute(
+            """
+            UPDATE regear_request
+            SET status='paid', paid_by=?, paid_at=datetime('now'), payout_method=?, payout_note=?
+            WHERE id=?
+            """,
+            (paid_by, payout_method, payout_note, regear_id),
         )
         conn.commit()
     finally:

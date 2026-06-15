@@ -14,6 +14,12 @@ _STATUS_ZH = {
     "rejected": "已拒绝",
     "paid": "已发放",
 }
+REGEAR_REJECT_REASONS = ("非补装范围", "重复申请", "装备/金额异常", "证据不足")
+PAYOUT_METHOD_LABELS = {
+    "silver": "等额银币",
+    "equipment": "原样装备",
+    "item": "等价值物品",
+}
 
 
 def _silver(n) -> str:
@@ -46,6 +52,50 @@ def _mainhand_line(event: dict) -> str:
     tier = items.tier_enchant(type_) or "?"
     name = items.localized(type_)
     return f"装备：主手 `{tier}` {name}" if name else f"装备：主手 `{tier}`"
+
+
+def _event_summary_lines(event: dict) -> list[str]:
+    victim = event.get("Victim") or {}
+    killer = event.get("Killer") or {}
+    raw = event.get("TimeStamp") or ""
+    ts = raw[:19].replace("T", " ")
+    bj = beijing(raw)
+    when = f"`{ts} UTC`（北京 {bj}）" if bj else f"`{ts}`"
+    fame = event.get("TotalVictimKillFame") or 0
+    participants = event.get("numberOfParticipants") or len(event.get("Participants") or []) or 1
+    lines = [
+        f"死亡：{when}　IP `{victim.get('AverageItemPower', 0):.0f}`",
+        f"被 `{killer.get('Name', '?')}` [{killer.get('GuildName') or '无'}] 击杀",
+        f"击杀声望 `{fmt(fame)}`　参与人数 `{participants}`　事件 `{event.get('EventId') or '-'}`",
+    ]
+    scale = scale_label(event)
+    if scale:
+        lines[-1] += f"　{scale}"
+    return lines
+
+
+def _equipment_detail_lines(valuation_result: dict | None) -> list[str]:
+    if not valuation_result:
+        return []
+    lines = value_lines(valuation_result, equip_limit=10, bag_limit=0)
+    if not lines:
+        return []
+    return ["", "**装备文字明细**", *lines]
+
+
+def _append_killboard_button(card: Card, event_id) -> None:
+    if not event_id:
+        return
+    card.append(
+        Module.ActionGroup(
+            Element.Button(
+                "查看官方击杀板",
+                KILLBOARD_URL.format(eid=event_id),
+                Types.Click.LINK,
+                Types.Theme.SECONDARY,
+            )
+        )
+    )
 
 
 def death_select_card(
@@ -165,28 +215,46 @@ def death_detail_card(
 
 
 def regear_apply_card(
-    regear_id: int, kook_user_id: str, player_name: str, event: dict, est_value: int
+    regear_id: int,
+    kook_user_id: str,
+    player_name: str,
+    event: dict,
+    est_value: int,
+    valuation_result: dict | None = None,
 ) -> CardMessage:
     """补装审批卡片，发到审批频道。"""
-    ts = (event.get("TimeStamp") or "")[:19].replace("T", " ")
-    ip = (event.get("Victim") or {}).get("AverageItemPower", 0)
-    text = (
-        f"**补装申请**\n"
-        f"申请人：(met){kook_user_id}(met)　角色：`{player_name}`\n"
-        f"死亡：`{ts}`　IP `{ip:.0f}`\n"
-        f"**补装金额 ≈ {_silver(est_value)} 银**（只计算穿戴装备）\n"
-        f"背包物品不计入补装；仅用于死亡详情/损失展示。"
-    )
+    lines = [
+        "**补装申请**",
+        f"申请号：`#{regear_id}`",
+        f"申请人：(met){kook_user_id}(met)　角色：`{player_name}`",
+        *_event_summary_lines(event),
+        f"**补装金额 ≈ {_silver(est_value)} 银**（只计算穿戴装备）",
+        "背包物品不计入补装；仅用于死亡详情/损失展示。",
+        *_equipment_detail_lines(valuation_result),
+    ]
     pass_val = json.dumps({"act": "regear_approve", "rid": regear_id})
-    reject_val = json.dumps({"act": "regear_reject", "rid": regear_id})
     card = Card(
-        Module.Section(Element.Text(text, Types.Text.KMD)),
+        Module.Section(Element.Text("\n".join(lines), Types.Text.KMD)),
         Module.ActionGroup(
             Element.Button("通过", pass_val, Types.Click.RETURN_VAL, Types.Theme.SUCCESS),
-            Element.Button("拒绝", reject_val, Types.Click.RETURN_VAL, Types.Theme.DANGER),
         ),
-        Module.Context(Element.Text("管理员或补装审核身份组点击有效。", Types.Text.KMD)),
+        Module.Context(Element.Text("管理员或补装审核身份组点击有效；拒绝必须选择理由。", Types.Text.KMD)),
     )
+    _append_killboard_button(card, event.get("EventId"))
+    card.append(
+        Module.ActionGroup(
+            *[
+                Element.Button(
+                    f"拒绝：{reason}",
+                    json.dumps({"act": "regear_reject", "rid": regear_id, "reason": reason}, ensure_ascii=False),
+                    Types.Click.RETURN_VAL,
+                    Types.Theme.DANGER,
+                )
+                for reason in REGEAR_REJECT_REASONS
+            ]
+        )
+    )
+    card.append(Module.Context(Element.Text(f"自定义拒绝理由：`/补装 拒绝 #{regear_id} 理由文本`", Types.Text.KMD)))
     return CardMessage(card)
 
 
@@ -211,24 +279,47 @@ def regear_reviewer_apply_card(request_id: int, kook_user_id: str) -> CardMessag
     return CardMessage(card)
 
 
-def regear_approved_card(regear_row: dict) -> CardMessage:
+def regear_approved_card(
+    regear_row: dict, event: dict | None = None, valuation_result: dict | None = None
+) -> CardMessage:
     """审批通过后的待发放卡片。"""
     rid = regear_row["id"]
-    text = (
-        f"**补装已通过，等待发放**\n"
-        f"申请人：(met){regear_row['kook_user_id']}(met)\n"
-        f"申请号：`#{rid}`　事件：`{regear_row.get('event_id') or '-'}`\n"
-        f"金额 ≈ `{fmt(regear_row.get('est_value'))}` 银\n"
-        f"发放银币/物资后点击下方按钮，状态会落库为 `paid`。"
-    )
-    paid_val = json.dumps({"act": "regear_paid", "rid": rid})
+    lines = [
+        "**补装已通过，等待发放**",
+        f"当前状态：`{_STATUS_ZH.get(regear_row.get('status'), '待发放')}`",
+        f"申请人：(met){regear_row['kook_user_id']}(met)",
+        f"申请号：`#{rid}`　事件：`{regear_row.get('event_id') or '-'}`",
+        f"金额 ≈ `{fmt(regear_row.get('est_value'))}` 银",
+    ]
+    if regear_row.get("created_at"):
+        lines.append(f"申请时间：`{regear_row['created_at']}`")
+    if regear_row.get("reviewed_at"):
+        reviewed_by = regear_row.get("reviewed_by") or "-"
+        lines.append(f"审核时间：`{regear_row['reviewed_at']}`　审核人：(met){reviewed_by}(met)")
+    if event:
+        lines.extend(["", *_event_summary_lines(event)])
+    lines.extend(_equipment_detail_lines(valuation_result))
+    lines.append("")
+    lines.append("发放后请选择实际方式，状态会落库为 `paid`。")
     card = Card(
-        Module.Section(Element.Text(text, Types.Text.KMD)),
-        Module.ActionGroup(
-            Element.Button("标记已发放", paid_val, Types.Click.RETURN_VAL, Types.Theme.SUCCESS),
-        ),
+        Module.Section(Element.Text("\n".join(lines), Types.Text.KMD)),
         Module.Context(Element.Text("管理员或补装审核身份组点击有效。", Types.Text.KMD)),
     )
+    _append_killboard_button(card, (event or {}).get("EventId") or regear_row.get("event_id"))
+    card.append(
+        Module.ActionGroup(
+            *[
+                Element.Button(
+                    f"{label}已发放",
+                    json.dumps({"act": "regear_paid", "rid": rid, "method": method}),
+                    Types.Click.RETURN_VAL,
+                    Types.Theme.SUCCESS,
+                )
+                for method, label in PAYOUT_METHOD_LABELS.items()
+            ]
+        )
+    )
+    card.append(Module.Context(Element.Text(f"带备注发放：`/补装 发放 #{rid} 银币|装备|物品 备注`", Types.Text.KMD)))
     return CardMessage(card)
 
 
@@ -247,15 +338,17 @@ def regear_queue_card(title: str, rows: list[dict]) -> CardMessage:
     for r in rows[:5]:
         if r.get("status") != "approved":
             continue
-        paid_val = json.dumps({"act": "regear_paid", "rid": r["id"]})
         card.append(
             Module.ActionGroup(
-                Element.Button(
-                    f"标记 #{r['id']} 已发放",
-                    paid_val,
-                    Types.Click.RETURN_VAL,
-                    Types.Theme.SUCCESS,
-                )
+                *[
+                    Element.Button(
+                        f"#{r['id']} {label}",
+                        json.dumps({"act": "regear_paid", "rid": r["id"], "method": method}),
+                        Types.Click.RETURN_VAL,
+                        Types.Theme.SUCCESS,
+                    )
+                    for method, label in PAYOUT_METHOD_LABELS.items()
+                ]
             )
         )
     return CardMessage(card)

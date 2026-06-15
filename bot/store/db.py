@@ -68,8 +68,11 @@ CREATE TABLE IF NOT EXISTS regear_request (
   created_at       TEXT DEFAULT (datetime('now')),
   reviewed_by      TEXT,
   reviewed_at      TEXT,
+  reject_reason    TEXT,
   paid_by          TEXT,
-  paid_at          TEXT
+  paid_at          TEXT,
+  payout_method    TEXT, -- silver/equipment/item
+  payout_note      TEXT
 );
 
 -- 补装审核身份申请
@@ -128,6 +131,12 @@ def _ensure_regear_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE regear_request ADD COLUMN paid_by TEXT")
     if "paid_at" not in cols:
         conn.execute("ALTER TABLE regear_request ADD COLUMN paid_at TEXT")
+    if "reject_reason" not in cols:
+        conn.execute("ALTER TABLE regear_request ADD COLUMN reject_reason TEXT")
+    if "payout_method" not in cols:
+        conn.execute("ALTER TABLE regear_request ADD COLUMN payout_method TEXT")
+    if "payout_note" not in cols:
+        conn.execute("ALTER TABLE regear_request ADD COLUMN payout_note TEXT")
 
 
 def _ensure_guild_binding_columns(conn: sqlite3.Connection) -> None:
