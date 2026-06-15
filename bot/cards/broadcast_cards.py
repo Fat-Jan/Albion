@@ -1,9 +1,28 @@
 """死亡播报卡片：我方击杀 / 我方阵亡，大额高亮。"""
 from khl.card import Card, CardMessage, Element, Module, Types
 
-from bot.albion import valuation
+from bot.albion import items, valuation
 from bot.cards.query_cards import KILLBOARD_URL
 from bot.cards.query_cards import beijing, fmt, scale_label
+
+
+def _ip(actor: dict) -> str:
+    try:
+        return f"{float(actor.get('AverageItemPower') or 0):.0f}"
+    except (TypeError, ValueError):
+        return "?"
+
+
+def _mainhand_text(label: str, actor: dict) -> str:
+    mainhand = ((actor.get("Equipment") or {}).get("MainHand") or {})
+    type_ = mainhand.get("Type")
+    if not type_:
+        return f"{label}主手 `无`"
+    tier = items.tier_enchant(type_)
+    name = items.localized(type_) or type_
+    if tier:
+        return f"{label}主手 `{tier}` {name}"
+    return f"{label}主手 {name}"
 
 
 def kill_card(
@@ -19,23 +38,24 @@ def kill_card(
     raw = event.get("TimeStamp") or ""
     ts = raw[:19].replace("T", " ")
     bj = beijing(raw)
-    when = f"`{ts} UTC`（北京 {bj}）" if bj else f"`{ts}`"
-    victim_ip = victim.get("AverageItemPower", 0)
+    title_time = f"　北京 {bj}" if bj else ""
+    when = f"`{ts} UTC`" if bj else f"`{ts}`"
     scale = scale_label(event)
 
     if is_kill:
-        title = "💚 我方击杀" + ("　💰 大额！" if highlight else "")
+        title = "💚 我方击杀" + title_time + ("　💰 大额！" if highlight else "")
         theme = Types.Theme.WARNING if highlight else Types.Theme.SUCCESS
     else:
-        title = "💀 我方阵亡" + ("　⚠️ 大额损失！" if highlight else "")
+        title = "💀 我方阵亡" + title_time + ("　⚠️ 大额损失！" if highlight else "")
         theme = Types.Theme.WARNING if highlight else Types.Theme.DANGER
 
     text = (
-        f"`{killer.get('Name', '?')}` [{killer.get('GuildName') or '无'}]\n"
-        f"⚔️ 击杀 `{victim.get('Name', '?')}` [{victim.get('GuildName') or '无'}]\n"
-        f"声望 `{fmt(fame)}`　受害者 IP `{victim_ip:.0f}`"
+        f"`{killer.get('Name', '?')}` [{killer.get('GuildName') or '无'}]　击杀方 IP `{_ip(killer)}`\n"
+        f"⚔️ 击杀 `{victim.get('Name', '?')}` [{victim.get('GuildName') or '无'}]　受害方 IP `{_ip(victim)}`\n"
+        f"声望 `{fmt(fame)}`"
         + (f"　{scale}" if scale else "")
         + "\n"
+        + f"{_mainhand_text('击杀方', killer)}　{_mainhand_text('受害方', victim)}\n"
         + when
     )
 

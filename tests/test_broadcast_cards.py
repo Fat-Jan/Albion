@@ -30,13 +30,33 @@ class BroadcastCardTest(unittest.TestCase):
     def test_kill_broadcast_shows_killboard_link(self):
         event = {
             "EventId": "67890",
-            "Killer": {"Name": "killer", "GuildName": "ours"},
-            "Victim": {"Name": "victim", "GuildName": "enemy", "AverageItemPower": 1200},
+            "Killer": {
+                "Name": "killer",
+                "GuildName": "ours",
+                "AverageItemPower": 1400,
+                "Equipment": {"MainHand": {"Type": "T8_MAIN_BOW@1", "Quality": 3}},
+            },
+            "Victim": {
+                "Name": "victim",
+                "GuildName": "enemy",
+                "AverageItemPower": 1200,
+                "Equipment": {"MainHand": {"Type": "T6_2H_DUALSWORD@2", "Quality": 2}},
+            },
             "TotalVictimKillFame": 150000,
             "TimeStamp": "2026-06-14T10:00:00",
         }
 
         card = list(kill_card(event, is_kill=True, highlight=False))
+
+        text = card_text(card)
+        self.assertIn("💚 我方击杀　北京 06-14 18:00", text)
+        self.assertIn("击杀方 IP `1400`", text)
+        self.assertIn("受害方 IP `1200`", text)
+        self.assertIn("击杀方主手 `T8.1`", text)
+        self.assertIn("禅师级弓箭+1", text)
+        self.assertIn("受害方主手 `T6.2`", text)
+        self.assertIn("`2026-06-14 10:00:00 UTC`", text)
+        self.assertNotIn("（北京 06-14 18:00）", text)
 
         buttons = action_buttons(card)
         self.assertEqual(len(buttons), 1)
