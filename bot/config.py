@@ -21,12 +21,12 @@ def _require(key: str) -> str:
 KOOK_TOKEN = os.getenv("KOOK_TOKEN", "").strip()
 
 GAMEINFO_BASE = os.getenv(
-    "GAMEINFO_BASE", "https://gameinfo-sgp.albiononline.com/api/gameinfo"
+    "GAMEINFO_BASE", "https://gameinfo-ams.albiononline.com/api/gameinfo"
 ).rstrip("/")
-AODP_BASE = os.getenv("AODP_BASE", "https://east.albion-online-data.com").rstrip("/")
-ALBIONBB_BASE = os.getenv("ALBIONBB_BASE", "https://api.albionbb.com/asia").rstrip("/")
-ALBIONBB_WEB_BASE = os.getenv("ALBIONBB_WEB_BASE", "https://east.albionbb.com").rstrip("/")
-KILLBOARD_SERVER = os.getenv("KILLBOARD_SERVER", "live_sgp").strip() or "live_sgp"
+AODP_BASE = os.getenv("AODP_BASE", "https://europe.albion-online-data.com").rstrip("/")
+ALBIONBB_BASE = os.getenv("ALBIONBB_BASE", "https://api.albionbb.com/eu").rstrip("/")
+ALBIONBB_WEB_BASE = os.getenv("ALBIONBB_WEB_BASE", "https://europe.albionbb.com").rstrip("/")
+KILLBOARD_SERVER = os.getenv("KILLBOARD_SERVER", "live_ams").strip() or "live_ams"
 
 DISPLAY_TZ = os.getenv("DISPLAY_TZ", "Asia/Shanghai").strip() or "Asia/Shanghai"
 DISPLAY_TZ_LABEL = os.getenv("DISPLAY_TZ_LABEL", "北京时间").strip() or "北京时间"

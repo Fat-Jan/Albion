@@ -9,10 +9,10 @@
 
 ## 项目定位
 
-- 这是面向单个亚服公会的 KOOK 机器人。
+- 这是面向单个欧服公会的 KOOK 机器人。
 - 技术栈固定为 Python + khl.py + httpx + SQLite。
-- 数据源固定为亚服：`gameinfo-sgp`、AODP `east`、albionbb `asia`。
-- 当前线上服务和调试状态以 `STATUS.md` 与 `notepad.md` 为准。
+- 数据源默认欧服：`gameinfo-ams`、AODP `europe`、albionbb `eu`；如切区必须三类数据源保持同区。
+- 当前部署和调试状态以 `STATUS.md` 与 `notepad.md` 为准；欧服线上实例未明确前，不把亚服旧服务当作当前线上。
 
 ## 安全边界
 
@@ -23,9 +23,9 @@
 
 ## 本地与线上调试
 
-- 同一个 `KOOK_TOKEN` 不能同时被本地 bot 和线上 systemd 服务使用。
-- 如果本地 `.env` 使用线上旧 token，必须确保服务器 `albion-kook.service` 已停止后再本地启动 bot。
-- 升级服务器代码时不要替换服务器上的旧 `KOOK_TOKEN`。
+- 同一个 `KOOK_TOKEN` 不能同时被两个 bot 进程使用。
+- 如果本地 `.env` 使用某个已确认线上实例的 token，必须先确保对应实例已停止后再本地启动 bot。
+- 升级已确认的服务器实例时不要替换服务器上的旧 `KOOK_TOKEN`。
 - 离线验证不得启动 `bot.main`，只跑测试和编译检查。
 
 ## 验证门禁

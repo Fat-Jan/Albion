@@ -1,6 +1,6 @@
 # 阿尔比恩公会 KOOK 机器人
 
-面向《Albion Online》亚服公会的 KOOK 机器人。项目把公会绑定、成员自助绑定、战斗查询、死亡播报、补装审批和市场估值集中到一个轻量 Python 服务里，运行数据使用本地 SQLite 保存。
+面向《Albion Online》欧服公会的 KOOK 机器人。项目把公会绑定、成员自助绑定、战斗查询、死亡播报、补装审批和市场估值集中到一个轻量 Python 服务里，运行数据使用本地 SQLite 保存。
 
 GitHub 仓库：<https://github.com/Fat-Jan/Albion.git>
 
@@ -9,7 +9,7 @@ GitHub 仓库：<https://github.com/Fat-Jan/Albion.git>
 ## 项目状态
 
 - 当前通用版本为 `1.0`，单一来源为 `bot/version.py`；机器人在线时 `/ping` 返回 `pong v1.0`。
-- 默认面向亚服：官方战斗数据走 `gameinfo-sgp`，市场数据走 AODP `east`，ZvZ 战报走 albionbb `asia`。
+- 默认面向欧服：官方战斗数据走 `gameinfo-ams`，市场数据走 AODP `europe`，ZvZ 战报走 albionbb `eu`。
 - 一个 KOOK 服务器绑定一个 Albion 公会；公会、成员、频道、身份组、补装和战报去重状态保存在本地 SQLite。
 - 频道配置保存的是 KOOK 频道 ID，不依赖频道名称。手动改频道名通常不影响机器人；删除频道、重建频道或迁移到新服务器后，需要重新执行对应 `/设置 ...频道 #频道`。
 - 补装金额只计算穿戴装备；背包物品只在详情和总损失里展示，不计入补装。
@@ -45,7 +45,7 @@ GitHub 仓库：<https://github.com/Fat-Jan/Albion.git>
 
 - `/战绩 [角色名]`：查看角色概况、最近击杀和最近阵亡。
 - `/估值 [角色名]`：估最近一次死亡，拆分装备估值、背包估值和总损失。
-- `/物价 <物品名或 ID>`：查亚服各城当前最低卖单。
+- `/物价 <物品名或 ID>`：查欧服各城当前最低卖单。
 - `/金价`：查最新金价。
 - `/榜单 pvp|pve`：查当前绑定公会成员排行榜。
 - `/战役`：查当前绑定公会最近 ZvZ 战役。
@@ -103,9 +103,9 @@ pending（待审批） -> rejected（已拒绝）
 | KOOK SDK | khl.py，WebSocket 模式 |
 | HTTP 客户端 | httpx |
 | 存储 | SQLite |
-| 战斗数据 | 官方 `gameinfo-sgp` |
-| 市场数据 | Albion Online Data Project `east` |
-| ZvZ 数据 | albionbb `asia` |
+| 战斗数据 | 官方 `gameinfo-ams` |
+| 市场数据 | Albion Online Data Project `europe` |
+| ZvZ 数据 | albionbb `eu` |
 
 ## 快速开始
 
@@ -126,11 +126,11 @@ cp .env.example .env
 
 ```dotenv
 KOOK_TOKEN=
-GAMEINFO_BASE=https://gameinfo-sgp.albiononline.com/api/gameinfo
-AODP_BASE=https://east.albion-online-data.com
-ALBIONBB_BASE=https://api.albionbb.com/asia
-ALBIONBB_WEB_BASE=https://east.albionbb.com
-KILLBOARD_SERVER=live_sgp
+GAMEINFO_BASE=https://gameinfo-ams.albiononline.com/api/gameinfo
+AODP_BASE=https://europe.albion-online-data.com
+ALBIONBB_BASE=https://api.albionbb.com/eu
+ALBIONBB_WEB_BASE=https://europe.albionbb.com
+KILLBOARD_SERVER=live_ams
 DISPLAY_TZ=Asia/Shanghai
 DISPLAY_TZ_LABEL=北京时间
 DISPLAY_TZ_SHORT_LABEL=北京
@@ -147,14 +147,14 @@ AI_MAX_OUTPUT_TOKENS=800
 
 `KOOK_TOKEN` 是必填密钥。启用 AI 时使用 `AI_API_KEY` 或 `LONGCAT_API_KEY`，前者优先。密钥不要提交到 Git。
 
-欧服部署时保持北京时间显示和 `/战报 [日期]` 的北京时间窗口，只把区服数据源改成欧服：
+如需切回亚服，保持三类数据源同区：
 
 ```dotenv
-GAMEINFO_BASE=https://gameinfo-ams.albiononline.com/api/gameinfo
-AODP_BASE=https://europe.albion-online-data.com
-ALBIONBB_BASE=https://api.albionbb.com/eu
-ALBIONBB_WEB_BASE=https://europe.albionbb.com
-KILLBOARD_SERVER=live_ams
+GAMEINFO_BASE=https://gameinfo-sgp.albiononline.com/api/gameinfo
+AODP_BASE=https://east.albion-online-data.com
+ALBIONBB_BASE=https://api.albionbb.com/asia
+ALBIONBB_WEB_BASE=https://east.albionbb.com
+KILLBOARD_SERVER=live_sgp
 DISPLAY_TZ=Asia/Shanghai
 DISPLAY_TZ_LABEL=北京时间
 DISPLAY_TZ_SHORT_LABEL=北京
@@ -182,7 +182,7 @@ nohup .venv/bin/python -m bot.main > bot.log 2>&1 &
 
 ## 运维命令
 
-同一个 `KOOK_TOKEN` 不能被两个正在运行的 bot 进程同时使用，否则会抢 KOOK WebSocket 连接并可能重复处理消息。调试线上同一个 bot token 前，先停止线上服务：
+同一个 `KOOK_TOKEN` 不能被两个正在运行的 bot 进程同时使用，否则会抢 KOOK WebSocket 连接并可能重复处理消息。只有在已明确欧服线上实例、服务名和 token 指纹后，才按下面方式停对应服务再本地调试同一个 bot token：
 
 ```bash
 systemctl stop albion-kook.service
@@ -190,7 +190,7 @@ systemctl stop albion-kook.service
 systemctl start albion-kook.service
 ```
 
-如果本地 `.env` 使用独立开发 bot token，则可以直接启动本地机器人调试，不需要停止线上服务：
+如果本地 `.env` 使用独立开发 bot token，则可以直接启动本地机器人调试，不需要停止其他实例：
 
 ```bash
 .venv/bin/python -m bot.main

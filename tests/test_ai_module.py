@@ -173,7 +173,7 @@ class AIServiceTest(unittest.IsolatedAsyncioTestCase):
         text = await service.summarize_battle_report(
             {
                 "battle_id": "123",
-                "battle_url": "https://east.albionbb.com/battles/123",
+                "battle_url": "https://europe.albionbb.com/battles/123",
                 "guild_name": "Mika",
                 "start_time": "2026-06-14T10:00:00",
                 "total_players": 6,
@@ -463,7 +463,7 @@ class AIContextTest(unittest.TestCase):
         context = battle_report_context(
             {
                 "battle_id": "123",
-                "battle_url": "https://east.albionbb.com/battles/123",
+                "battle_url": "https://europe.albionbb.com/battles/123",
                 "guild_name": "Mika",
                 "start_time": "2026-06-14T10:00:00",
                 "total_players": 6,

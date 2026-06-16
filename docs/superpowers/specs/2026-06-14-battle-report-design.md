@@ -36,7 +36,7 @@
 主源使用 AlbionBB：
 
 ```text
-GET https://api.albionbb.com/asia/battles?minPlayers=<整场人数预筛>&page=1
+GET https://api.albionbb.com/eu/battles?minPlayers=<整场人数预筛>&page=1
 ```
 
 返回字段已实测可用：
@@ -52,13 +52,13 @@ GET https://api.albionbb.com/asia/battles?minPlayers=<整场人数预筛>&page=1
 AlbionBB 可服务端直连，比官方 `/battles?guildId=` 更适合第一版自动聚合候选和战报摘要。AlbionBB 的 `minPlayers` 是整场总参战人数，不是本会人数；第一版最终推送前必须再查官方战役详情，按 `players` 里的公会字段统计本会参战人数：
 
 ```text
-GET https://gameinfo-sgp.albiononline.com/api/gameinfo/battles/{battle_id}
+GET https://gameinfo-ams.albiononline.com/api/gameinfo/battles/{battle_id}
 ```
 
 如果后续需要完整击杀事件、装备和出勤，再查：
 
 ```text
-GET https://gameinfo-sgp.albiononline.com/api/gameinfo/events/battle/{battle_id}
+GET https://gameinfo-ams.albiononline.com/api/gameinfo/events/battle/{battle_id}
 ```
 
 ## 配置
@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS battle_report_seen (
 
 - 构造 KOOK 卡片
 - 展示开始时间、总人数、击杀数、总声望、本会 killFame、Top 公会和 Top 联盟
-- 提供 AlbionBB 链接：`https://east.albionbb.com/battles/{battle_id}`
+- 提供 AlbionBB 链接：`https://europe.albionbb.com/battles/{battle_id}`
 
 `bot/tasks/auto.py`
 
@@ -169,7 +169,7 @@ Mika 参与大型战役
 
 - 查看 AlbionBB 战报
 
-AlbionBB 链接格式已用 live probe 确认：`https://east.albionbb.com/battles/{battle_id}` 返回 200。
+AlbionBB 链接格式已用 live probe 确认：`https://europe.albionbb.com/battles/{battle_id}` 返回 200。
 
 ## 错误处理
 

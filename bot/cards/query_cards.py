@@ -336,7 +336,7 @@ def price_card(rows: list, item_name: str) -> CardMessage:
         lines.append(f"· {city}（Q{q}）`{fmt(sp)}`")
         shown += 1
     if shown == 0:
-        lines.append("各城暂无挂单（亚服市场稀疏）。")
+        lines.append("各城暂无挂单（当前区服市场数据稀疏）。")
     return CardMessage(Card(Module.Section(Element.Text("\n".join(lines), Types.Text.KMD))))
 
 

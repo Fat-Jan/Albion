@@ -4,9 +4,9 @@
   筛出本会击杀/阵亡推到播报频道，
   大额（TotalVictimKillFame ≥ 阈值）高亮。首轮只记录不播报，避免开机刷历史。
   注：官方 /events?guildId= 只回本会"击杀"不含"阵亡"，故改走全局 feed 双向筛
-  （亚服全局约 36 事件/分钟，多页足以覆盖；ZvZ 突发超覆盖会丢少量，已记日志）。
+  （全局事件量随区服波动；ZvZ 突发超覆盖会丢少量，已记日志）。
 - 退会复查：每日比对公会成员，已绑定但退会的撤身份组 + 清绑定，并优先通知成员变动频道。
-- ZvZ 战报：按专属战报频道配置，在北京时间 14:30-次日 05:00 拉取 AlbionBB
+- ZvZ 战报：按专属战报频道配置，在配置的北京时间窗口拉取 AlbionBB
   候选战役，官方详情聚合后推送，并用 SQLite 持久去重。
 """
 import logging
@@ -116,7 +116,7 @@ def _should_run_death_broadcast(
 
 
 def _should_run_battle_report(now: datetime | None = None) -> bool:
-    """战报只在北京 ZvZ 活跃时段运行；测试传入 naive UTC 时间。"""
+    """战报只在配置的 ZvZ 活跃时段运行；测试传入 naive UTC 时间。"""
     current = (now or datetime.utcnow()) + timedelta(hours=8)
     t = current.time()
     return t >= BATTLE_REPORT_START or t < BATTLE_REPORT_END
