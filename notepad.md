@@ -11,7 +11,7 @@
 - 测试用 KOOK 服务器可换（当前 id `4676167053713576`，bot 身份 Jianguomao#7691）；绑定一律按运行时 guild_id 走，代码不写死服务器。
 - 测试参考角色：armskey/muaowo（都不在 Mika）；需要 Mika 成员就从 `/guilds/{id}/members` 挑活跃的。
 - 实际运行环境是 **Python 3.13.12**（计划写 3.11+），khl.py 0.3.17 / httpx 0.28.1 / python-dotenv，3.13 兼容无碍；venv 在 `.venv/`。
-- 技术栈定死：Python + khl.py（WebSocket）+ httpx + SQLite；数据源走亚服三件套（gameinfo-sgp / east AODP / albionbb-asia），别混区。
+- 技术栈定死：Python + khl.py（WebSocket）+ httpx + SQLite；数据源默认走亚服三件套（gameinfo-sgp / east AODP / albionbb-asia），AlbionBB 网页链接、官方击杀板 server、显示时区和自动战报窗口已配置化，亚服默认仍是 east.albionbb.com / live_sgp / 北京时间窗口，别混区。
 - 所有设计决议已收口进 `KOOK机器人实现计划.md` 第十一节，无遗留待定项。
 - 项目 GitHub 仓库地址：`https://github.com/Fat-Jan/Albion.git`，本地 Git remote `origin` 已指向该地址。
 - 本地双版本维护约定：亚服目录 `/Users/arm/Desktop/vscode/Albion-ASIA-kook` 固定使用 `deploy/asia` 分支；欧服目录 `/Users/arm/Desktop/vscode/Albion-EU-kook` 固定使用 `deploy/eu` 分支；`main` 只当共享上游主线，不直接作为某个服务器实例长期开发分支。双目录 VS Code 入口在 `/Users/arm/Desktop/vscode/Albion-ASIA-EU-kook.code-workspace`。

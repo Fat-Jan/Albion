@@ -4,8 +4,9 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from bot import config
 
-ALBIONBB_BATTLE_URL = "https://east.albionbb.com/battles/{battle_id}"
+ALBIONBB_BATTLE_URL = "{base}/battles/{battle_id}"
 
 
 def build_battle_report(
@@ -41,7 +42,9 @@ def build_battle_report(
     )
     return {
         "battle_id": battle_id,
-        "battle_url": ALBIONBB_BATTLE_URL.format(battle_id=battle_id),
+        "battle_url": ALBIONBB_BATTLE_URL.format(
+            base=config.ALBIONBB_WEB_BASE, battle_id=battle_id
+        ),
         "guild_name": guild_name,
         "start_time": _field(battle_detail, "startTime", "StartTime", "startedAt", default=""),
         "total_players": _int(

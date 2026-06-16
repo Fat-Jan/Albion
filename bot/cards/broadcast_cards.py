@@ -3,7 +3,7 @@ from khl.card import Card, CardMessage, Element, Module, Types
 
 from bot.albion import items, valuation
 from bot.cards.query_cards import KILLBOARD_URL
-from bot.cards.query_cards import beijing, fmt, scale_label
+from bot.cards.query_cards import beijing, display_time_prefix, fmt, scale_label
 
 
 def _ip(actor: dict) -> str:
@@ -42,7 +42,7 @@ def kill_card(
     raw = event.get("TimeStamp") or ""
     ts = raw[:19].replace("T", " ")
     bj = beijing(raw)
-    title_time = f"　北京 {bj}" if bj else ""
+    title_time = f"　{display_time_prefix()} {bj}" if bj else ""
     when = f"`{ts} UTC`" if bj else f"`{ts}`"
     scale = scale_label(event)
 

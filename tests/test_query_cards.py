@@ -1,5 +1,6 @@
 import unittest
 
+from bot import config
 from bot.cards.query_cards import profile_card, valuation_card
 
 
@@ -84,3 +85,24 @@ class QueryCardTest(unittest.TestCase):
         self.assertIn("**损失估值**", text)
         self.assertIn("**明细**", text)
         self.assertTrue(any("装备估值 ≈ `1,000` 银" in s and "背包估值 ≈ `2,000` 银" in s for s in sections))
+
+    def test_valuation_card_uses_configured_killboard_server(self):
+        old_server = config.KILLBOARD_SERVER
+        try:
+            config.KILLBOARD_SERVER = "live_ams"
+            card = valuation_card(
+                "player",
+                {
+                    "EventId": "12345",
+                    "TimeStamp": "2026-06-14T10:00:00",
+                    "Victim": {"AverageItemPower": 1200},
+                },
+                {"items": []},
+            )
+        finally:
+            config.KILLBOARD_SERVER = old_server
+
+        raw = str(list(card))
+        text = card_text(card)
+        self.assertIn("北京 06-14 18:00", text)
+        self.assertIn("server=live_ams", raw)

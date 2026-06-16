@@ -93,7 +93,7 @@ pending（待审批） -> rejected（已拒绝）
 - 死亡播报：普通时段每 4 分钟轮询全局事件，20:00-00:30 每 90 秒，筛选本会击杀和阵亡；可分别推送到击杀播报和阵亡播报频道。
 - 退会复查：每天 04:00 比对 Albion 公会成员，退会则撤 KOOK 会员组、删除绑定，并通知成员变动频道。
 - 价格参考库刷新：每 3 天刷新 T4-T8 主手、双手、副手低价参考。
-- ZvZ 战报推送：北京时间 14:30 到次日 05:00 每 15 分钟检查一次，命中绑定公会且达到本会参战人数阈值后推送专属战报卡；开启 AI 时，卡片会附带只读 AI 摘要。
+- ZvZ 战报推送：默认北京时间 14:30 到次日 05:00 每 15 分钟检查一次，可通过 `DISPLAY_TZ` 和 `BATTLE_REPORT_WINDOW_*` 调整；命中绑定公会且达到本会参战人数阈值后推送专属战报卡；开启 AI 时，卡片会附带只读 AI 摘要。
 
 ## 技术栈
 
@@ -129,6 +129,13 @@ KOOK_TOKEN=
 GAMEINFO_BASE=https://gameinfo-sgp.albiononline.com/api/gameinfo
 AODP_BASE=https://east.albion-online-data.com
 ALBIONBB_BASE=https://api.albionbb.com/asia
+ALBIONBB_WEB_BASE=https://east.albionbb.com
+KILLBOARD_SERVER=live_sgp
+DISPLAY_TZ=Asia/Shanghai
+DISPLAY_TZ_LABEL=北京时间
+DISPLAY_TZ_SHORT_LABEL=北京
+BATTLE_REPORT_WINDOW_START=14:30
+BATTLE_REPORT_WINDOW_END=05:00
 DB_PATH=data/bot.db
 LOG_LEVEL=INFO
 AI_ENABLED=false
@@ -141,6 +148,16 @@ AI_MAX_OUTPUT_TOKENS=800
 ```
 
 `KOOK_TOKEN` 是必填密钥。启用 AI 时使用 `AI_API_KEY` 或 `LONGCAT_API_KEY`，前者优先。密钥不要提交到 Git。
+
+默认配置面向亚服。切区时需同时切官方 gameinfo、AODP、AlbionBB API、AlbionBB 网页和官方击杀板 server，避免市场、战报和链接混区。例如欧服：
+
+```dotenv
+GAMEINFO_BASE=https://gameinfo-ams.albiononline.com/api/gameinfo
+AODP_BASE=https://europe.albion-online-data.com
+ALBIONBB_BASE=https://api.albionbb.com/eu
+ALBIONBB_WEB_BASE=https://europe.albionbb.com
+KILLBOARD_SERVER=live_ams
+```
 
 ### 3. 初始化数据库
 

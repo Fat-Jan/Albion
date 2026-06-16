@@ -10,6 +10,7 @@ from bot.cards.query_cards import (
     battle_scale_line,
     beijing,
     beijing_datetime,
+    display_time_prefix,
     fmt,
     scale_label,
     value_lines,
@@ -74,7 +75,7 @@ def _event_summary_lines(event: dict) -> list[str]:
     raw = event.get("TimeStamp") or ""
     ts = raw[:19].replace("T", " ")
     bj = beijing(raw)
-    when = f"`{ts} UTC`（北京 {bj}）" if bj else f"`{ts}`"
+    when = f"`{ts} UTC`（{display_time_prefix()} {bj}）" if bj else f"`{ts}`"
     fame = event.get("TotalVictimKillFame") or 0
     participants = event.get("numberOfParticipants") or len(event.get("Participants") or []) or 1
     lines = [
@@ -123,7 +124,7 @@ def death_select_card(
         raw = ev.get("TimeStamp") or ""
         ts = raw[:19].replace("T", " ")
         bj = beijing(raw)
-        when = f"`{ts} UTC`（北京 {bj}）" if bj else f"`{ts}`"
+        when = f"`{ts} UTC`（{display_time_prefix()} {bj}）" if bj else f"`{ts}`"
         ip = (ev.get("Victim") or {}).get("AverageItemPower", 0)
         killer = (ev.get("Killer") or {}).get("Name", "?")
         scale = scale_label(ev)
@@ -171,7 +172,7 @@ def death_detail_card(
     raw = event.get("TimeStamp") or ""
     ts = raw[:19].replace("T", " ")
     bj = beijing(raw)
-    when = f"`{ts} UTC`（北京 {bj}）" if bj else f"`{ts}`"
+    when = f"`{ts} UTC`（{display_time_prefix()} {bj}）" if bj else f"`{ts}`"
     scale_line = battle_scale_line(event, battle_players)
 
     head = (
