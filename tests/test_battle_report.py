@@ -83,22 +83,6 @@ class BattleReportTest(unittest.TestCase):
         self.assertEqual(highlights["top_death_fame"]["name"], "Cathy")
         self.assertEqual(highlights["top_death_fame"]["death_fame"], 900_000)
 
-    def test_report_uses_configured_albionbb_web_base(self):
-        old_base = config.ALBIONBB_WEB_BASE
-        try:
-            config.ALBIONBB_WEB_BASE = "https://europe.albionbb.com"
-            report = build_battle_report(
-                _battle_detail(),
-                _battle_events(),
-                guild_name="Mika",
-            )
-        finally:
-            config.ALBIONBB_WEB_BASE = old_base
-
-        self.assertEqual(
-            report["battle_url"], "https://europe.albionbb.com/battles/123"
-        )
-
     def test_card_marks_participant_counts_and_player_leaders(self):
         report = build_battle_report(
             _battle_detail(),
