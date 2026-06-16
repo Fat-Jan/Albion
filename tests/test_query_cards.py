@@ -88,8 +88,14 @@ class QueryCardTest(unittest.TestCase):
 
     def test_valuation_card_uses_configured_killboard_server(self):
         old_server = config.KILLBOARD_SERVER
+        old_tz = config.DISPLAY_TZ
+        old_label = config.DISPLAY_TZ_LABEL
+        old_short_label = config.DISPLAY_TZ_SHORT_LABEL
         try:
             config.KILLBOARD_SERVER = "live_ams"
+            config.DISPLAY_TZ = "Asia/Shanghai"
+            config.DISPLAY_TZ_LABEL = "北京时间"
+            config.DISPLAY_TZ_SHORT_LABEL = "北京"
             card = valuation_card(
                 "player",
                 {
@@ -101,8 +107,11 @@ class QueryCardTest(unittest.TestCase):
             )
         finally:
             config.KILLBOARD_SERVER = old_server
+            config.DISPLAY_TZ = old_tz
+            config.DISPLAY_TZ_LABEL = old_label
+            config.DISPLAY_TZ_SHORT_LABEL = old_short_label
 
-        raw = str(list(card))
         text = card_text(card)
-        self.assertIn("北京 06-14 18:00", text)
+        raw = str(list(card))
+        self.assertIn("`2026-06-14 10:00:00 UTC`（北京 06-14 18:00）", text)
         self.assertIn("server=live_ams", raw)
