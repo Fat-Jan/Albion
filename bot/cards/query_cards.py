@@ -1,38 +1,82 @@
 """查询类卡片：战绩 / 估值 / 战役 / 物价 / 金价 / 榜单。"""
-from datetime import datetime, timedelta
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from khl.card import Card, CardMessage, Element, Module, Types
 
 from bot.albion import items
 from bot.albion import valuation
+from bot import config
 from bot.cards.layout import interleave_dividers, kmd_section
 
 
 def beijing(ts_iso: str) -> str:
-    """UTC ISO 时间串 → 北京时间 `MM-DD HH:MM`（服务器走 UTC，给国服玩家加注释）。"""
+    """UTC ISO 时间串 → 配置的展示时区 `MM-DD HH:MM`。"""
     if not ts_iso:
         return ""
     try:
-        dt = datetime.fromisoformat(ts_iso[:19])
+        dt = _parse_utc(ts_iso)
     except ValueError:
         return ""
-    return (dt + timedelta(hours=8)).strftime("%m-%d %H:%M")
+    return _to_display_tz(dt).strftime("%m-%d %H:%M")
 
 
 def beijing_datetime(ts: object) -> str:
-    """UTC 数据库/API 时间 → 完整北京时间，用于审批/处理记录。"""
+    """UTC 数据库/API 时间 → 完整展示时区时间，用于审批/处理记录。"""
     raw = str(ts or "").strip()
     if not raw:
         return ""
     try:
-        dt = datetime.fromisoformat(raw[:19])
+        dt = _parse_utc(raw)
     except ValueError:
         return raw
-    return (dt + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S 北京时间")
+    return f"{_to_display_tz(dt):%Y-%m-%d %H:%M:%S} {config.DISPLAY_TZ_LABEL}"
 
 
-# 亚服击杀板：EventId 即官网 kill id
-KILLBOARD_URL = "https://albiononline.com/killboard/kill/{eid}?server=live_sgp"
+def display_time_prefix() -> str:
+    return config.DISPLAY_TZ_SHORT_LABEL
+
+
+def display_time_label() -> str:
+    return config.DISPLAY_TZ_LABEL
+
+
+def killboard_url(event_id) -> str:
+    return KILLBOARD_URL.format(eid=event_id)
+
+
+def _parse_utc(raw: str) -> datetime:
+    text = str(raw or "").strip()
+    if text.endswith("Z"):
+        text = text[:-1]
+    dt = datetime.fromisoformat(text[:19])
+    return dt.replace(tzinfo=UTC)
+
+
+def _to_display_tz(dt: datetime) -> datetime:
+    try:
+        tz = ZoneInfo(config.DISPLAY_TZ)
+    except ZoneInfoNotFoundError:
+        tz = ZoneInfo("Asia/Shanghai")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(tz)
+
+
+class _KillboardURL:
+    """兼容旧的 KILLBOARD_URL.format(eid=...) 调用，server 运行时读配置。"""
+
+    def format(self, *, eid, **_: object) -> str:
+        return (
+            "https://albiononline.com/killboard/kill/"
+            f"{eid}?server={config.KILLBOARD_SERVER}"
+        )
+
+    def __str__(self) -> str:
+        return "https://albiononline.com/killboard/kill/{eid}?server=<configured>"
+
+
+KILLBOARD_URL = _KillboardURL()
 
 # 官方死亡事件 Location 常为 null，回退 KillArea 粗分类的中文
 _AREA_ZH = {

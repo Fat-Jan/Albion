@@ -25,6 +25,14 @@ GAMEINFO_BASE = os.getenv(
 ).rstrip("/")
 AODP_BASE = os.getenv("AODP_BASE", "https://east.albion-online-data.com").rstrip("/")
 ALBIONBB_BASE = os.getenv("ALBIONBB_BASE", "https://api.albionbb.com/asia").rstrip("/")
+ALBIONBB_WEB_BASE = os.getenv("ALBIONBB_WEB_BASE", "https://east.albionbb.com").rstrip("/")
+KILLBOARD_SERVER = os.getenv("KILLBOARD_SERVER", "live_sgp").strip() or "live_sgp"
+
+DISPLAY_TZ = os.getenv("DISPLAY_TZ", "Asia/Shanghai").strip() or "Asia/Shanghai"
+DISPLAY_TZ_LABEL = os.getenv("DISPLAY_TZ_LABEL", "北京时间").strip() or "北京时间"
+DISPLAY_TZ_SHORT_LABEL = os.getenv("DISPLAY_TZ_SHORT_LABEL", "北京").strip() or "北京"
+BATTLE_REPORT_WINDOW_START = os.getenv("BATTLE_REPORT_WINDOW_START", "14:30").strip() or "14:30"
+BATTLE_REPORT_WINDOW_END = os.getenv("BATTLE_REPORT_WINDOW_END", "05:00").strip() or "05:00"
 
 DB_PATH = os.getenv("DB_PATH", "data/bot.db")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()

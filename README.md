@@ -129,6 +129,11 @@ KOOK_TOKEN=
 GAMEINFO_BASE=https://gameinfo-sgp.albiononline.com/api/gameinfo
 AODP_BASE=https://east.albion-online-data.com
 ALBIONBB_BASE=https://api.albionbb.com/asia
+ALBIONBB_WEB_BASE=https://east.albionbb.com
+KILLBOARD_SERVER=live_sgp
+DISPLAY_TZ=Asia/Shanghai
+DISPLAY_TZ_LABEL=北京时间
+DISPLAY_TZ_SHORT_LABEL=北京
 DB_PATH=data/bot.db
 LOG_LEVEL=INFO
 AI_ENABLED=false
@@ -141,6 +146,19 @@ AI_MAX_OUTPUT_TOKENS=800
 ```
 
 `KOOK_TOKEN` 是必填密钥。启用 AI 时使用 `AI_API_KEY` 或 `LONGCAT_API_KEY`，前者优先。密钥不要提交到 Git。
+
+欧服部署时保持北京时间显示和 `/战报 [日期]` 的北京时间窗口，只把区服数据源改成欧服：
+
+```dotenv
+GAMEINFO_BASE=https://gameinfo-ams.albiononline.com/api/gameinfo
+AODP_BASE=https://europe.albion-online-data.com
+ALBIONBB_BASE=https://api.albionbb.com/eu
+ALBIONBB_WEB_BASE=https://europe.albionbb.com
+KILLBOARD_SERVER=live_ams
+DISPLAY_TZ=Asia/Shanghai
+DISPLAY_TZ_LABEL=北京时间
+DISPLAY_TZ_SHORT_LABEL=北京
+```
 
 ### 3. 初始化数据库
 
