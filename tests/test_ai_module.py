@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 from datetime import date
+from types import SimpleNamespace
 
 from bot import config
 from bot.ai.client import AIClient, AIClientConfig
@@ -193,6 +194,22 @@ class AIServiceTest(unittest.IsolatedAsyncioTestCase):
         prompt = "\n".join(m["content"] for m in client.calls[0]["messages"])
         self.assertIn("battle_report_summary", prompt)
         self.assertIn("不要编造地图、战术", prompt)
+
+    async def test_summarize_battles_hides_missing_api_fields_from_users(self):
+        client = FakeAIClient("最近有战役记录，击杀和 Fame 有波动。")
+        service = AIService(client, enabled=True)
+
+        await service.summarize_battles(
+            "Top Squad",
+            [{"id": 1, "startTime": "2026-06-15T16:20:34Z", "totalPlayers": None}],
+        )
+
+        prompt = "\n".join(m["content"] for m in client.calls[0]["messages"])
+        self.assertNotIn('"total_players":null', prompt)
+        self.assertNotIn('"total_kills":null', prompt)
+        self.assertNotIn('"total_fame":null', prompt)
+        self.assertIn("不要输出字段名、null", prompt)
+        self.assertIn("缺失字段直接略过", prompt)
 
     async def test_service_blocks_unsafe_action_claims_and_redacts_secrets(self):
         client = FakeAIClient("已批准 #1，KOOK_TOKEN=secret，Bearer abc123，ak_2Ia6kF9TM5q36dQ7G27382BO2cl7B")
@@ -440,6 +457,52 @@ class AIContextTest(unittest.TestCase):
             "2026-06-14 18:00 UTC+8（北京时间）",
         )
 
+    def test_battles_context_omits_unknown_optional_metrics(self):
+        context = battles_context(
+            "Top Squad",
+            [
+                {
+                    "id": 1,
+                    "startTime": "2026-06-15T16:20:34Z",
+                    "totalKills": None,
+                    "totalFame": "",
+                    "totalPlayers": None,
+                }
+            ],
+        )
+
+        battle = context["battles"][0]
+        self.assertNotIn("total_players", battle)
+        self.assertNotIn("total_kills", battle)
+        self.assertNotIn("total_fame", battle)
+
+    def test_battles_context_derives_total_players_from_players_collection(self):
+        context = battles_context(
+            "Top Squad",
+            [
+                {
+                    "id": 1,
+                    "startTime": "2026-06-15T16:20:34Z",
+                    "players": {
+                        "p1": {"name": "A"},
+                        "p2": {"name": "B"},
+                    },
+                    "clusterName": "",
+                },
+                {
+                    "id": 2,
+                    "StartTime": "2026-06-15T16:30:00Z",
+                    "Players": [{"name": "A"}, {"name": "B"}, {"name": "C"}],
+                    "clusterName": "Rivercopse Fount",
+                },
+            ],
+        )
+
+        self.assertEqual(context["battles"][0]["total_players"], 2)
+        self.assertNotIn("cluster_name", context["battles"][0])
+        self.assertEqual(context["battles"][1]["total_players"], 3)
+        self.assertEqual(context["battles"][1]["cluster_name"], "Rivercopse Fount")
+
     def test_battle_report_date_arg_filters_beijing_night_window(self):
         target = ai_commands._parse_battle_report_date(
             ("6-15",), today=date(2026, 6, 16)
@@ -457,6 +520,97 @@ class AIContextTest(unittest.TestCase):
         self.assertEqual(
             [b["id"] for b in battles],
             ["target-evening", "target-after-midnight"],
+        )
+
+    def test_mention_intent_routes_battle_report_readonly_action(self):
+        intent = ai_commands._parse_mention_intent("帮我调用战报")
+
+        self.assertEqual(intent.action, "battle_report")
+        self.assertEqual(intent.args, ())
+
+    def test_mention_intent_keeps_battle_report_date_argument(self):
+        intent = ai_commands._parse_mention_intent("帮我看一下 6-15 的战报")
+
+        self.assertEqual(intent.action, "battle_report")
+        self.assertEqual(intent.args, ("6-15",))
+
+    def test_mention_intent_treats_last_night_as_yesterday_battle_report(self):
+        intent = ai_commands._parse_mention_intent(
+            "帮我调一下昨晚的战报", today=date(2026, 6, 16)
+        )
+
+        self.assertEqual(intent.action, "battle_report")
+        self.assertEqual(intent.args, ("6-15",))
+
+    def test_mention_intent_routes_dated_battle_words_to_battle_report(self):
+        cases = [
+            ("帮我调一下昨晚的战役", ("6-15",)),
+            ("帮我调昨天晚上的战役", ("6-15",)),
+            ("帮我调 6-15 晚上的战役", ("6-15",)),
+            ("帮我看 6月15日晚上的战役", ("6月15日",)),
+        ]
+
+        for question, args in cases:
+            with self.subTest(question=question):
+                intent = ai_commands._parse_mention_intent(
+                    question, today=date(2026, 6, 16)
+                )
+                self.assertEqual(intent.action, "battle_report")
+                self.assertEqual(intent.args, args)
+
+    def test_mention_intent_does_not_route_mutating_request_to_command(self):
+        dangerous_questions = [
+            "帮我批准 1 号补装并发身份组",
+            "帮我绑定 Latano",
+            "帮我绑定公会 Top Squad",
+            "帮我设置战报推送频道",
+            "帮我提交补装申请",
+            "帮我解绑这个成员",
+        ]
+
+        for question in dangerous_questions:
+            with self.subTest(question=question):
+                intent = ai_commands._parse_mention_intent(question)
+                self.assertEqual(intent.action, "assistant")
+                self.assertEqual(intent.question, question)
+
+    def test_mention_intent_routes_readonly_query_commands(self):
+        cases = [
+            ("查一下我的战绩", "stats", ()),
+            ("查一下 Latano 的战绩", "stats", ("Latano",)),
+            ("战绩 Latano", "stats", ("Latano",)),
+            ("估一下 Latano 最近死亡", "valuation", ("Latano",)),
+            ("估值 Latano", "valuation", ("Latano",)),
+            ("查金价", "gold", ()),
+            ("查一下老手级双剑物价", "price", ("老手级双剑",)),
+            ("看 pve 榜单", "rank", ("pve",)),
+            ("看最近战役", "battles", ()),
+        ]
+
+        for question, action, args in cases:
+            with self.subTest(question=question):
+                intent = ai_commands._parse_mention_intent(question)
+                self.assertEqual(intent.action, action)
+                self.assertEqual(intent.args, args)
+
+    def test_strip_bot_mention_removes_kook_met_token(self):
+        text = ai_commands._strip_bot_mention("(met)49050(met) 帮我调用战报", "49050")
+
+        self.assertEqual(text, "帮我调用战报")
+
+    def test_configured_display_name_mention_triggers_and_is_removed(self):
+        msg = SimpleNamespace(content="@欧罗巴版Jianguomao 帮我调用战报", mention=[])
+
+        self.assertTrue(
+            ai_commands._message_mentions_bot(
+                msg, "49050", names=("欧罗巴版Jianguomao",)
+            )
+        )
+        self.assertEqual(
+            ai_commands._strip_bot_mention(
+                msg.content, "49050", names=("欧罗巴版Jianguomao",)
+            ),
+            "帮我调用战报",
         )
 
     def test_battle_report_context_is_safe_and_readonly(self):
@@ -538,7 +692,7 @@ class AIContextTest(unittest.TestCase):
                 "kill_broadcast_channel_id": None,
                 "death_broadcast_channel_id": None,
                 "battle_report_channel_id": "battle-report",
-                "battle_report_min_guild_players": 25,
+                "battle_report_min_guild_players": 5,
                 "member_change_channel_id": None,
                 "regear_channel_id": "regear",
                 "regear_apply_channel_id": "regear-apply",
@@ -547,7 +701,6 @@ class AIContextTest(unittest.TestCase):
                 "regear_notify_channel_id": "regear-notify",
                 "regear_reviewer_role_ids": "role-a,role-b",
                 "trusted_role_ids": "",
-                "kill_fame_threshold": 100000,
                 "created_by": "admin-user",
             }
         )
@@ -559,7 +712,12 @@ class AIContextTest(unittest.TestCase):
         self.assertEqual(context["settings"]["regear_payout_channel_id"], "regear-payout")
         self.assertEqual(context["settings"]["regear_notify_channel_id"], "regear-notify")
         self.assertEqual(context["settings"]["battle_report_channel_id"], "battle-report")
-        self.assertEqual(context["settings"]["battle_report_min_guild_players"], 25)
+        self.assertEqual(context["settings"]["battle_report_min_guild_players"], 20)
+        self.assertEqual(
+            context["settings"]["large_broadcast_rule"],
+            "击杀/死亡声望 > 100万，或银币总损失 > 1000万",
+        )
+        self.assertNotIn("kill_fame_threshold", context["settings"])
         self.assertEqual(context["settings"]["regear_reviewer_role_count"], 2)
         self.assertNotIn("created_by", context)
 

@@ -160,7 +160,7 @@ class BattleReportAutoTest(unittest.IsolatedAsyncioTestCase):
         repo.set_setting("guild", "battle_report_channel_id", "battle-channel")
         repo.set_setting("guild", "battle_report_min_guild_players", 2)
         bot = FakeBot()
-        gi = FakeBattleGameInfo(_battle_detail(), _battle_events())
+        gi = FakeBattleGameInfo(_battle_detail_with_guild_players(20), _battle_events())
         bb = FakeAlbionBB(
             [
                 {
@@ -186,7 +186,7 @@ class BattleReportAutoTest(unittest.IsolatedAsyncioTestCase):
         repo.set_setting("guild", "battle_report_channel_id", "battle-channel")
         repo.set_setting("guild", "battle_report_min_guild_players", 2)
         bot = FakeBot()
-        gi = FakeBattleGameInfo(_battle_detail(), _battle_events())
+        gi = FakeBattleGameInfo(_battle_detail_with_guild_players(20), _battle_events())
         bb = FakeAlbionBB(
             [
                 {
@@ -211,12 +211,38 @@ class BattleReportAutoTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("**AI 摘要**", text)
         self.assertIn("本会参战 3 人", text)
 
+    async def test_battle_report_tick_enforces_at_least_twenty_guild_players(self):
+        repo.bind_guild("guild", "albion-guild", "Mika", "admin")
+        repo.set_setting("guild", "battle_report_channel_id", "battle-channel")
+        repo.set_setting("guild", "battle_report_min_guild_players", 5)
+        bot = FakeBot()
+        gi = FakeBattleGameInfo(_battle_detail_with_guild_players(6), _battle_events())
+        bb = FakeAlbionBB(
+            [
+                {
+                    "albionId": "123",
+                    "guilds": [{"name": "Mika", "killFame": 32000}],
+                }
+            ]
+        )
+
+        await auto._run_battle_report_tick(
+            bot,
+            gi,
+            bb,
+            now=datetime(2026, 6, 14, 6, 30),
+        )
+
+        channel = bot.client.channels.get("battle-channel")
+        self.assertEqual(channel.send_count if channel else 0, 0)
+        self.assertFalse(repo.has_seen_battle_report("guild", "123"))
+
     async def test_battle_report_tick_skips_unconfigured_window_and_seen(self):
         repo.bind_guild("guild", "albion-guild", "Mika", "admin")
         repo.set_setting("guild", "battle_report_channel_id", "battle-channel")
         repo.set_setting("guild", "battle_report_min_guild_players", 2)
         bot = FakeBot()
-        gi = FakeBattleGameInfo(_battle_detail(), _battle_events())
+        gi = FakeBattleGameInfo(_battle_detail_with_guild_players(20), _battle_events())
         bb = FakeAlbionBB(
             [{"albionId": "123", "guilds": [{"name": "Mika"}]}]
         )
@@ -250,7 +276,7 @@ class BattleReportAutoTest(unittest.IsolatedAsyncioTestCase):
         repo.set_setting("guild", "battle_report_channel_id", "battle-channel")
         repo.set_setting("guild", "battle_report_min_guild_players", 2)
         bot = FakeBot(fail_send=True)
-        gi = FakeBattleGameInfo(_battle_detail(), _battle_events())
+        gi = FakeBattleGameInfo(_battle_detail_with_guild_players(20), _battle_events())
         bb = FakeAlbionBB(
             [{"albionId": "123", "guilds": [{"name": "Mika"}]}]
         )
@@ -357,6 +383,28 @@ def _battle_detail():
             "a3": {"name": "MONKY", "killFame": 5_000},
         },
     }
+
+
+def _battle_detail_with_guild_players(count: int):
+    detail = _battle_detail()
+    players = dict(detail["players"])
+    existing = [
+        p
+        for p in players.values()
+        if p.get("guildName") == "Mika" or p.get("GuildName") == "Mika"
+    ]
+    for idx in range(len(existing) + 1, count + 1):
+        players[f"mika-extra-{idx}"] = {
+            "name": f"MikaExtra{idx}",
+            "guildName": "Mika",
+            "allianceName": "5I7",
+            "kills": 0,
+            "deaths": 0,
+            "killFame": 0,
+        }
+    detail["players"] = players
+    detail["totalPlayers"] = len(players)
+    return detail
 
 
 def _battle_events():

@@ -33,6 +33,11 @@ DISPLAY_TZ_LABEL = os.getenv("DISPLAY_TZ_LABEL", "北京时间").strip() or "北
 DISPLAY_TZ_SHORT_LABEL = os.getenv("DISPLAY_TZ_SHORT_LABEL", "北京").strip() or "北京"
 BATTLE_REPORT_WINDOW_START = os.getenv("BATTLE_REPORT_WINDOW_START", "14:30").strip() or "14:30"
 BATTLE_REPORT_WINDOW_END = os.getenv("BATTLE_REPORT_WINDOW_END", "05:00").strip() or "05:00"
+KOOK_BOT_MENTION_ALIASES = tuple(
+    item.strip().lstrip("@")
+    for item in os.getenv("KOOK_BOT_MENTION_ALIASES", "").split(",")
+    if item.strip().lstrip("@")
+)
 
 DB_PATH = os.getenv("DB_PATH", "data/bot.db")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()

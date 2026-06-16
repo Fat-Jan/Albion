@@ -210,8 +210,7 @@ SETTING_USAGE = (
     "`/设置 战报推送频道 #频道`\n"
     "`/设置 战报本会最小人数 <人数>`\n"
     "`/设置 成员变动频道 #频道`\n"
-    "`/设置 可信身份组 @身份组[ @身份组...]`\n"
-    "`/设置 大额阈值 <fame数字>`"
+    "`/设置 可信身份组 @身份组[ @身份组...]`"
 )
 
 
@@ -315,8 +314,9 @@ def register(bot: Bot, gi: GameInfo) -> None:
             if not value.isdigit() or int(value) <= 0:
                 await msg.reply("战报本会最小人数需为正整数，例：/设置 战报本会最小人数 20")
                 return
-            repo.set_setting(kgid, "battle_report_min_guild_players", int(value))
-            await msg.reply(f"✅ 战报本会最小人数已设为 {int(value)} 人。")
+            count = max(20, int(value))
+            repo.set_setting(kgid, "battle_report_min_guild_players", count)
+            await msg.reply(f"✅ 战报本会最小人数已设为 {count} 人（最低 20 人）。")
 
         elif key == "成员变动频道":
             cid = await _resolve_channel(msg.ctx.guild, value)
@@ -391,11 +391,7 @@ def register(bot: Bot, gi: GameInfo) -> None:
             await msg.reply(f"✅ 可信身份组已设为 {len(rids)} 个（绑定走快速通道）。")
 
         elif key == "大额阈值":
-            if not value.isdigit():
-                await msg.reply("阈值需为数字（fame），例：/设置 大额阈值 100000")
-                return
-            repo.set_setting(kgid, "kill_fame_threshold", int(value))
-            await msg.reply(f"✅ 大额播报阈值已设为 {int(value):,} fame。")
+            await msg.reply("大额播报现在使用固定规则：击杀/死亡声望 > 100万，或银币总损失 > 1000万。")
 
         else:
             await msg.reply(SETTING_USAGE)
