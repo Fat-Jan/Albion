@@ -15,6 +15,7 @@
 - 所有设计决议已收口进 `KOOK机器人实现计划.md` 第十一节，无遗留待定项。
 - 项目 GitHub 仓库地址：`https://github.com/Fat-Jan/Albion.git`，本地 Git remote `origin` 已指向该地址。
 - 本地双版本维护约定：欧服目录 `/Users/arm/Desktop/vscode/Albion-EU-kook` 固定使用 `deploy/eu` 分支；亚服目录 `/Users/arm/Desktop/vscode/Albion-ASIA-kook` 固定使用 `deploy/asia` 分支；`main` 只当共享上游主线，不直接作为某个服务器实例长期开发分支。双目录 VS Code 入口在 `/Users/arm/Desktop/vscode/Albion-ASIA-EU-kook.code-workspace`。
+- 功能同步规则：共享功能修复用独立提交双向 cherry-pick；不要整分支互 merge。整分支 merge 会把区服接口默认值、`.env.example`、公会名、运行证据和部署记录混进另一实例。
 - 远端注意：阿里云新加坡 `aliyun_singapore:/opt/albion-kook` 是亚服旧服务/旧文档残留的可能性很高。2026-06-16 只读复查：该目录不是 git 工作树，`.env` 仍覆盖亚服三件套（gameinfo-sgp / AODP east / albionbb asia），`albion-kook.service` active/running，PID `1208143`。不要把它默认视为欧服线上；如需部署欧服，先明确目标服务器/目录/token 边界。
 - 当前数据库概况（2026-06-16 复查）：`guild_binding=1`、`player_binding=0`、`pending_approval=0`、`regear_request=0`、`regear_reviewer_request=0`、`market_price_reference=10595`，`pragma integrity_check=ok`。本机当前 `guild_binding.battle_report_channel_id=3758107198191605`。旧补装测试记录清理前已备份到 `data/backups/`；绑定活测的测试用户本地绑定和待审批行已删除。
 
