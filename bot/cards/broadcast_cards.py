@@ -88,7 +88,7 @@ def kill_card(
         ),
     ]
 
-    if not is_kill and valuation_result:
+    if valuation_result:
         sums = valuation.summary(valuation_result)
         sections.extend(
             [

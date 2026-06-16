@@ -169,6 +169,77 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(auto.classify(event, "guild"), (True, False))
 
+    async def test_broadcast_highlight_requires_fame_over_one_million(self):
+        message = await self._run_death_broadcast(
+            _broadcast_event(fame=1_000_000, victim_guild_id="guild"),
+            FakeBroadcastMarket(loss_total=10_000_000),
+        )
+
+        self.assertNotIn("大额损失", card_text(message))
+
+        message = await self._run_death_broadcast(
+            _broadcast_event("event-2", fame=1_000_001, victim_guild_id="guild"),
+            FakeBroadcastMarket(loss_total=10_000_000),
+        )
+
+        self.assertIn("大额损失", card_text(message))
+
+    async def test_broadcast_highlight_accepts_loss_over_ten_million(self):
+        message = await self._run_death_broadcast(
+            _broadcast_event(fame=150_000, victim_guild_id="guild"),
+            FakeBroadcastMarket(loss_total=10_000_000),
+        )
+
+        self.assertNotIn("大额损失", card_text(message))
+
+        message = await self._run_death_broadcast(
+            _broadcast_event("event-2", fame=150_000, victim_guild_id="guild"),
+            FakeBroadcastMarket(loss_total=10_000_001),
+        )
+
+        self.assertIn("大额损失", card_text(message))
+
+    async def test_broadcast_kill_highlight_requires_fame_over_one_million(self):
+        message = await self._run_death_broadcast(
+            _broadcast_event(fame=1_000_000, killer_guild_id="guild"),
+            FakeBroadcastMarket(loss_total=10_000_000),
+        )
+
+        self.assertNotIn("大额！", card_text(message))
+
+        message = await self._run_death_broadcast(
+            _broadcast_event("event-2", fame=1_000_001, killer_guild_id="guild"),
+            FakeBroadcastMarket(loss_total=0),
+        )
+
+        self.assertIn("大额！", card_text(message))
+
+    async def test_broadcast_kill_highlight_accepts_loss_over_ten_million(self):
+        message = await self._run_death_broadcast(
+            _broadcast_event(fame=150_000, killer_guild_id="guild"),
+            FakeBroadcastMarket(loss_total=10_000_001),
+        )
+
+        text = card_text(message)
+        self.assertIn("大额！", text)
+        self.assertIn("总损失 `1000.0万` 银", text)
+
+    async def _run_death_broadcast(self, event: dict, market) -> object:
+        repo.bind_guild("guild", "guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "broadcast_channel_id", "broadcast")
+        repo.set_setting("guild", "kill_fame_threshold", 100_000)
+        auto._primed = True
+        auto._seen.clear()
+        auto._seen_order.clear()
+        auto._last_death_broadcast_at = None
+        channels = {"broadcast": FakeChannel("broadcast")}
+        bot = FakeScheduledBot(channels)
+        auto.register(bot, FakeBroadcastGameInfo([event]), market)
+
+        await bot.task.interval_tasks["death_broadcast"]()
+
+        return channels["broadcast"].messages[-1]
+
     def test_member_review_channel_prefers_dedicated_member_change_channel(self):
         self.assertEqual(
             auto._member_review_notify_channel(
@@ -666,6 +737,7 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/设置 补装通知频道 #频道", admin.SETTING_USAGE)
         self.assertIn("/设置 战报推送频道 #频道", admin.SETTING_USAGE)
         self.assertIn("/设置 战报本会最小人数 <人数>", admin.SETTING_USAGE)
+        self.assertNotIn("/设置 大额阈值", admin.SETTING_USAGE)
 
     def test_regear_center_default_names_use_emoji(self):
         self.assertEqual(admin.REGEAR_CENTER_CATEGORY_NAME, "🛡️补装中心")
@@ -957,6 +1029,35 @@ class FakeMarket:
         return []
 
 
+class FakeBroadcastGameInfo:
+    def __init__(self, events):
+        self.events_data = events
+
+    async def events(self, limit=51, offset=0):
+        return self.events_data if offset == 0 else []
+
+    async def guild_members(self, guild_id):
+        return []
+
+
+class FakeBroadcastMarket:
+    def __init__(self, *, loss_total: int):
+        self.loss_total = loss_total
+
+    async def history(self, items, locations=None, qualities=None, time_scale=24):
+        return [
+            {
+                "item_id": "T8_MAIN_SPEAR_KEEPER@1",
+                "quality": 4,
+                "location": "Caerleon",
+                "data": [{"avg_price": self.loss_total}],
+            }
+        ]
+
+    async def prices(self, items, locations=None, qualities=None):
+        return []
+
+
 class FakeAIService:
     def __init__(self, text):
         self.text = text
@@ -1018,6 +1119,32 @@ class FakeBot:
         self.client = FakeClient(channels, guild)
 
 
+class FakeScheduledBot:
+    def __init__(self, channels):
+        self.client = FakeClient(channels, FakeGuild(FakeUser([])))
+        self.task = FakeTaskRegistry()
+
+
+class FakeTaskRegistry:
+    def __init__(self):
+        self.interval_tasks = {}
+        self.cron_tasks = {}
+
+    def add_interval(self, **kwargs):
+        def decorate(fn):
+            self.interval_tasks[fn.__name__] = fn
+            return fn
+
+        return decorate
+
+    def add_cron(self, **kwargs):
+        def decorate(fn):
+            self.cron_tasks[fn.__name__] = fn
+            return fn
+
+        return decorate
+
+
 class FakeGate:
     def __init__(self):
         self.requests = []
@@ -1051,4 +1178,31 @@ def sample_regear_event(event_id="event-1"):
             },
         },
         "Killer": {"Name": "killer", "GuildName": "enemy"},
+    }
+
+
+def _broadcast_event(
+    event_id="event-1",
+    *,
+    fame: int,
+    killer_guild_id: str = "enemy",
+    victim_guild_id: str = "enemy",
+):
+    return {
+        "EventId": event_id,
+        "TimeStamp": "2026-06-14T10:00:00",
+        "TotalVictimKillFame": fame,
+        "Killer": {
+            "Name": "killer",
+            "GuildId": killer_guild_id,
+            "GuildName": "ours" if killer_guild_id == "guild" else "enemy",
+        },
+        "Victim": {
+            "Name": "victim",
+            "GuildId": victim_guild_id,
+            "GuildName": "ours" if victim_guild_id == "guild" else "enemy",
+            "Equipment": {
+                "MainHand": {"Type": "T8_MAIN_SPEAR_KEEPER@1", "Quality": 4}
+            },
+        },
     }

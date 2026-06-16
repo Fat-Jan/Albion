@@ -7,8 +7,8 @@
 - 分支同步规则：共享功能修复先做成独立提交，再 cherry-pick 到 `deploy/asia` 和 `deploy/eu`；不要整分支互 merge，因为接口默认值、`.env.example`、运行证据、公会名和部署记录必须各自保留。
 - 已从欧服分支抽回通用区服配置化能力到亚服分支：AlbionBB 网页链接、官方击杀板 server、显示时区和自动战报窗口均可通过环境变量调整；亚服默认值继续保持 `gameinfo-sgp`、AODP `east`、albionbb `asia/east`、`live_sgp` 和北京时间窗口。
 - 当前版本：`1.0`，来源 `bot/version.py`。
-- AI 辅助首发、只读查询增强和高频卡片露出已实现；AI 现在会出现在补装审核卡和自动 ZvZ 战报卡，但不参与审批、发组、撤组、改金额或发放标记。
-- ZvZ 战报聚合/卡片、AI 摘要、战报推送频道、最小本会参战人数阈值、持久去重表和 `auto.py` 定时推送代码路径已接入；本机真实 KOOK 发送路径已确认战报只推到专属频道，线上 `albion-kook.service` 已切到日期参数修复版本，真实自动命中效果继续观察。
+- AI 辅助首发、只读查询增强、`@机器人` 自然语言只读入口和高频卡片露出已实现；AI 现在会出现在补装审核卡和自动 ZvZ 战报卡，但不参与审批、发组、撤组、改金额或发放标记。
+- ZvZ 战报聚合/卡片、AI 摘要、战报推送频道、最小本会参战人数阈值、最低 20 名本会参战者门槛、持久去重表和 `auto.py` 定时推送代码路径已接入；本机真实 KOOK 发送路径已确认战报只推到专属频道，线上 `albion-kook.service` 已切到日期参数修复版本，真实自动命中效果继续观察。
 - M7 出勤快照后置，等待真实用户反馈考勤口径。
 
 ## Harness
@@ -28,6 +28,7 @@
 
 ## Verification
 
+- 2026-06-16：亚服本地同步欧服共享规则和自然语言入口收口。本轮只在亚服 `deploy/asia` 手工同步共享逻辑和文档，不整分支 merge，不改亚服区服默认值。战报自动推送现在运行时强制最低 20 名本会参战者才推送；击杀/死亡播报大额规则固定为击杀/死亡声望大于 100 万，或银币总损失大于 1000 万；低声望击杀也会按受害者装备+背包 `loss_total` 判断大额并展示损失估值；旧 `/设置 大额阈值` 仅提示固定规则，不再写入运行时配置；AI 配置概况也改为展示固定大额规则，并同步欧服 AI 战报字段清理、只读写操作拦截、`@机器人` 自然语言只读分发、昨晚/日期战报识别和显示名 mention 别名配置。`KOOK_BOT_MENTION_ALIASES` 默认留空，只在实例需要识别可见显示名时配置，避免写死 bot 名。验证：`.venv/bin/python -m unittest tests.test_battle_report tests.test_regear_flow tests.test_ai_module -v` 通过（102 个测试），`scripts/check.sh` 通过（140 个单元测试 + `compileall bot scripts tests`），`git diff --check` 通过。双边共享核心文件复查：`bot/tasks/auto.py`、`bot/cards/broadcast_cards.py`、`bot/ai/context.py`、`bot/ai/router.py`、`bot/commands/admin.py`、`bot/commands/ai.py`、`bot/commands/query.py`、`bot/store/db.py`、`tests/test_regear_flow.py` 与欧服一致；保留差异为区服默认值、AI system prompt 区服标识、区服链接/测试数据和文档实例事实。本轮未部署服务器，未启动真实 KOOK bot，未做 KOOK 真实活测。
 - 2026-06-16：双版本共享能力同步收口。本轮只在亚服 `deploy/asia` 抽回通用配置化能力，保留亚服默认值；补充 `ALBIONBB_WEB_BASE`、`KILLBOARD_SERVER`、`DISPLAY_TZ*`、`BATTLE_REPORT_WINDOW_*` 到配置和文档入口，卡片/战报/自动任务改为读取配置；未整分支 merge，未启动本地 bot，未部署服务器。验证：`.venv/bin/python -m unittest tests.test_query_cards tests.test_battle_report -v` 通过（15 个测试），`scripts/check.sh` 通过（124 个单元测试 + `compileall bot scripts tests`），`git diff --check` 通过；配置探针确认默认仍为 `gameinfo-sgp`、AODP `east`、albionbb `asia/east`、`live_sgp`、`Asia/Shanghai`、北京时间 `14:30-05:00`。
 - 2026-06-16：双分支差距复查。`git fetch --all --prune` 后确认亚服工作区在 `deploy/asia` 且跟踪 `origin/deploy/asia`，欧服工作区在 `deploy/eu` 且跟踪 `origin/deploy/eu`，两个本地工作区均干净。`git merge-base origin/deploy/eu origin/deploy/asia` 返回 `031571b`，说明亚服最新 `/战报 [日期]` 功能已经包含在欧服分支历史中；当前没有“亚服新功能未拉进欧服”的缺口。现存差异主要是欧服化提交 `7c87e63`，应保留在欧服分支，不整体同步回亚服；后续共享功能用 cherry-pick 双发。
 - 2026-06-16：修复 KOOK `/战报 6-15` 仍返回 6 月 14 日摘要的问题。根因是 `/战报` 指令此前忽略参数，始终请求最近 8 场战役；连续查询时第二次 `/战报 6-15` 还会复用前一次 `/battles?limit=8` 的 120 秒缓存。现在 `/战报` 保持最近 8 场，`/战报 6-15`、`/战报 6月15`、`/战报 2026-06-15` 会按北京时间目标日 14:30 到次日 05:00 的 ZvZ 夜间窗口过滤，并用 `limit=51` 拉取候选。服务器真实 gameinfo 探针确认 Mika 拉取 51 条候选后，在 2026-06-15 窗口选出 49 场，前几场为 `480477649 2026-06-15T16:34:44Z`、`480476754 2026-06-15T16:32:08Z`、`480473108 2026-06-15T16:20:34Z`。已部署到阿里云新加坡 `/opt/albion-kook`，重启 `albion-kook.service` 后状态 `active/running`，PID `1208143`，启动时间 `2026-06-16 00:44:56 CST`；本轮也已把 README、使用说明书、实现计划、STATUS 和 notepad 同步到服务器目录。验证：本地 `.venv/bin/python -m unittest tests.test_ai_module -v` 通过，`scripts/check.sh` 通过（121 个单元测试 + `compileall bot scripts tests`），`git diff --check` 通过；服务器侧目标回归测试、全量 `unittest discover -s tests -q` 和 `compileall -q bot scripts tests` 通过。KOOK 命令二次触发需由真实用户账号发送；bot token 不能伪装用户触发自身命令。

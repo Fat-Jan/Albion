@@ -1,6 +1,6 @@
 """SQLite 存储：绑定关系 + 审批 + 补装。数据量小，用 stdlib sqlite3 同步即可。
 
-列在计划第六节基础上补了 M2+ 设置项所需字段（播报频道/击杀播报频道/阵亡播报频道/战报推送频道/成员变动频道/可信身份组/大额阈值）。
+列在计划第六节基础上补了 M2+ 设置项所需字段（播报频道/击杀播报频道/阵亡播报频道/战报推送频道/成员变动频道/可信身份组）。
 """
 import os
 import sqlite3
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS guild_binding (
   member_change_channel_id TEXT,
   regear_reviewer_role_ids TEXT,             -- 逗号分隔：可审批/发放补装的身份组
   trusted_role_ids     TEXT,                 -- 角色预检：逗号分隔的可信身份组
-  kill_fame_threshold  INTEGER DEFAULT 100000,-- 死亡播报大额高亮门槛
+  kill_fame_threshold  INTEGER DEFAULT 100000,-- 旧版大额阈值字段，保留兼容；当前大额规则由代码固定
   created_by           TEXT,
   created_at           TEXT DEFAULT (datetime('now'))
 );
