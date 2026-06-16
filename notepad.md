@@ -14,6 +14,8 @@
 - 技术栈定死：Python + khl.py（WebSocket）+ httpx + SQLite；数据源走亚服三件套（gameinfo-sgp / east AODP / albionbb-asia），别混区。
 - 所有设计决议已收口进 `KOOK机器人实现计划.md` 第十一节，无遗留待定项。
 - 项目 GitHub 仓库地址：`https://github.com/Fat-Jan/Albion.git`，本地 Git remote `origin` 已指向该地址。
+- 本地双版本维护约定：亚服目录 `/Users/arm/Desktop/vscode/Albion-ASIA-kook` 固定使用 `deploy/asia` 分支；欧服目录 `/Users/arm/Desktop/vscode/Albion-EU-kook` 固定使用 `deploy/eu` 分支；`main` 只当共享上游主线，不直接作为某个服务器实例长期开发分支。双目录 VS Code 入口在 `/Users/arm/Desktop/vscode/Albion-ASIA-EU-kook.code-workspace`。
+- 功能同步规则：共享功能修复用独立提交双向 cherry-pick；不要整分支互 merge。整分支 merge 会把区服接口默认值、`.env.example`、公会名、运行证据和部署记录混进另一实例。
 - 当前线上服务：阿里云新加坡 `aliyun_singapore` 上的 `albion-kook.service`，目录 `/opt/albion-kook`，日志 `/var/log/albion-kook/bot.log`；线上继续使用旧 KOOK bot/token。2026-06-16 00:44 已切回服务器运行 `/战报 [日期]` 修复版本，PID `1208143`，启动命令 `/opt/albion-kook/.venv/bin/python -m bot.main`；服务器 `.env` 已开启 AI 且保留旧 token/key。后续升级服务器时**不要替换服务器上的旧 `KOOK_TOKEN`**。若后续改回独立开发 bot token，本地可不停服务器直接调试。
 - 当前数据库概况（2026-06-15 复查）：`guild_binding=1`、`player_binding=2`、`pending_approval=5`、`regear_request=0`、`regear_reviewer_request=0`、`market_price_reference=6234`，`pragma integrity_check=ok`。`guild_binding.battle_report_channel_id` 已迁移，本机当前值为 `8139656704033247`。旧补装测试记录清理前已备份到 `data/backups/`；绑定活测的测试用户本地绑定和待审批行已删除。
 

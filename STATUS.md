@@ -3,6 +3,8 @@
 ## Current
 
 - M0-M6 已实现并线上运行。
+- 本地双版本维护约定：`/Users/arm/Desktop/vscode/Albion-ASIA-kook` 使用 `deploy/asia` 分支维护亚服，`/Users/arm/Desktop/vscode/Albion-EU-kook` 使用 `deploy/eu` 分支维护欧服；`main` 只当共享上游主线，不直接作为某个服务器实例的长期工作分支。
+- 分支同步规则：共享功能修复先做成独立提交，再 cherry-pick 到 `deploy/asia` 和 `deploy/eu`；不要整分支互 merge，因为接口默认值、`.env.example`、运行证据、公会名和部署记录必须各自保留。
 - 当前版本：`1.0`，来源 `bot/version.py`。
 - AI 辅助首发、只读查询增强和高频卡片露出已实现；AI 现在会出现在补装审核卡和自动 ZvZ 战报卡，但不参与审批、发组、撤组、改金额或发放标记。
 - ZvZ 战报聚合/卡片、AI 摘要、战报推送频道、最小本会参战人数阈值、持久去重表和 `auto.py` 定时推送代码路径已接入；本机真实 KOOK 发送路径已确认战报只推到专属频道，线上 `albion-kook.service` 已切到日期参数修复版本，真实自动命中效果继续观察。
@@ -14,15 +16,18 @@
 - 长上下文事实：`notepad.md` 的 `## Priority Context`
 - 操作文档：`README.md`、`使用说明书.md`
 - 离线门禁：`scripts/check.sh`
+- VS Code 双目录入口：`/Users/arm/Desktop/vscode/Albion-ASIA-EU-kook.code-workspace`
 
 ## Next
 
 1. 上线后观察 systemd 自动窗口：确认真实 AlbionBB 候选战役、北京时间窗口和线上去重日志。
-2. 等真实用户反馈后再决定 M7 出勤口径。
-3. 上线后观察 AI 摘要和补装审核提示的真实输出质量，必要时调整提示词和截断长度。
+2. 新功能同步流程：在当前要开发的实例分支完成并通过 `scripts/check.sh` 后，用 `git cherry-pick <功能提交>` 同步到另一实例分支；同步后复查 `bot/config.py`、`.env.example`、README/使用说明/STATUS/notepad 的区服默认值没有被带错。
+3. 等真实用户反馈后再决定 M7 出勤口径。
+4. 上线后观察 AI 摘要和补装审核提示的真实输出质量，必要时调整提示词和截断长度。
 
 ## Verification
 
+- 2026-06-16：双分支差距复查。`git fetch --all --prune` 后确认亚服工作区在 `deploy/asia` 且跟踪 `origin/deploy/asia`，欧服工作区在 `deploy/eu` 且跟踪 `origin/deploy/eu`，两个本地工作区均干净。`git merge-base origin/deploy/eu origin/deploy/asia` 返回 `031571b`，说明亚服最新 `/战报 [日期]` 功能已经包含在欧服分支历史中；当前没有“亚服新功能未拉进欧服”的缺口。现存差异主要是欧服化提交 `7c87e63`，应保留在欧服分支，不整体同步回亚服；后续共享功能用 cherry-pick 双发。
 - 2026-06-16：修复 KOOK `/战报 6-15` 仍返回 6 月 14 日摘要的问题。根因是 `/战报` 指令此前忽略参数，始终请求最近 8 场战役；连续查询时第二次 `/战报 6-15` 还会复用前一次 `/battles?limit=8` 的 120 秒缓存。现在 `/战报` 保持最近 8 场，`/战报 6-15`、`/战报 6月15`、`/战报 2026-06-15` 会按北京时间目标日 14:30 到次日 05:00 的 ZvZ 夜间窗口过滤，并用 `limit=51` 拉取候选。服务器真实 gameinfo 探针确认 Mika 拉取 51 条候选后，在 2026-06-15 窗口选出 49 场，前几场为 `480477649 2026-06-15T16:34:44Z`、`480476754 2026-06-15T16:32:08Z`、`480473108 2026-06-15T16:20:34Z`。已部署到阿里云新加坡 `/opt/albion-kook`，重启 `albion-kook.service` 后状态 `active/running`，PID `1208143`，启动时间 `2026-06-16 00:44:56 CST`；本轮也已把 README、使用说明书、实现计划、STATUS 和 notepad 同步到服务器目录。验证：本地 `.venv/bin/python -m unittest tests.test_ai_module -v` 通过，`scripts/check.sh` 通过（121 个单元测试 + `compileall bot scripts tests`），`git diff --check` 通过；服务器侧目标回归测试、全量 `unittest discover -s tests -q` 和 `compileall -q bot scripts tests` 通过。KOOK 命令二次触发需由真实用户账号发送；bot token 不能伪装用户触发自身命令。
 - 2026-06-15：AI 高频露出版本已更新到阿里云新加坡 `/opt/albion-kook` 并切回服务器运行。上线前已将旧线上代码备份到 `/opt/albion-kook/releases/pre-ai-visibility-20260615_225328.tar.gz`；同步时保留服务器 `.env`、`.venv`、SQLite 数据库、日志和备份目录。服务器 `.env` 确认 `AI_ENABLED=true`、`AI_MODEL=LongCat-2.0-Preview`、`LONGCAT_API_KEY` 存在（未输出密钥原文）。线上代码包含 `summarize_battle_report`、战报卡「AI 摘要」和补装审核卡「AI 审核提示」。已重启 `albion-kook.service`，状态 `active/running`，PID `1205474`，启动时间 `2026-06-15 22:55:15 CST`，运行命令 `/opt/albion-kook/.venv/bin/python -m bot.main`；重启后日志显示 KOOK WebSocket 启动、定时任务注册、死亡播报轮询成功。服务器侧验证：`sudo -u albion .venv/bin/python -m bot.store.db` 成功，`sudo -u albion .venv/bin/python -m unittest discover -s tests -q` 通过（120 个测试），`sudo -u albion .venv/bin/python -m compileall -q bot scripts tests` 通过，`pragma integrity_check=ok`。
 - 2026-06-15：AI 可见度增强离线实现完成；补装申请提交到审核频道时会先基于 `regear_explain_context()` 生成只读「AI 审核提示」，自动 ZvZ 战报推送会先基于 `battle_report_context()` 生成只读「AI 摘要」，异常时只记录 warning 并继续发送原卡片。新增回归覆盖补装审核卡 AI 提示、自动战报卡 AI 摘要、战报事实包和摘要 prompt 安全边界。验证：`.venv/bin/python -m unittest tests.test_battle_report tests.test_regear_flow tests.test_ai_module -v` 通过（83 个测试），`scripts/check.sh` 通过（120 个单元测试 + `compileall bot scripts tests`），`git diff --check` 通过。本轮尚未启动真实 KOOK bot 或重启线上 systemd；上线验证待后续执行。
