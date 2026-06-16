@@ -2,7 +2,7 @@
 from khl.card import Card, CardMessage, Element, Module, Types
 
 from bot.cards.layout import interleave_dividers, kmd_section
-from bot.cards.query_cards import beijing, fmt
+from bot.cards.query_cards import beijing, display_time_prefix, fmt
 
 
 def battle_report_card(report: dict, ai_summary: str | None = None) -> CardMessage:
@@ -64,7 +64,7 @@ def _time_line(raw: str) -> str:
     ts = (raw or "")[:19].replace("T", " ")
     bj = beijing(raw or "")
     if bj:
-        return f"时间 `{ts} UTC`（北京 {bj}）"
+        return f"时间 `{ts} UTC`（{display_time_prefix()} {bj}）"
     return f"时间 `{ts}`" if ts else "时间 `?`"
 
 

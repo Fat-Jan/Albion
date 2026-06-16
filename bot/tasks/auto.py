@@ -6,16 +6,18 @@
   注：官方 /events?guildId= 只回本会"击杀"不含"阵亡"，故改走全局 feed 双向筛
   （全局事件量随区服波动；ZvZ 突发超覆盖会丢少量，已记日志）。
 - 退会复查：每日比对公会成员，已绑定但退会的撤身份组 + 清绑定，并优先通知成员变动频道。
-- ZvZ 战报：按专属战报频道配置，在配置的北京时间窗口拉取 AlbionBB
+- ZvZ 战报：按专属战报频道配置，在配置的展示时区窗口拉取 AlbionBB
   候选战役，官方详情聚合后推送，并用 SQLite 持久去重。
 """
 import logging
 from collections import deque
-from datetime import datetime, time, timedelta
+from datetime import UTC, datetime, time
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from khl import Bot
 
+from bot import config
 from bot.ai.service import AIService
 from bot.albion.battle_report import build_battle_report
 from bot.albion import valuation
@@ -38,8 +40,8 @@ FEED_PAGES = 4  # 每轮拉的全局 feed 页数（51/页），覆盖轮询间�
 MAX_BROADCAST_PER_TICK = 15  # 控频，避免刷爆 KOOK 配额
 BATTLE_REPORT_INTERVAL_MIN = 15
 BATTLE_REPORT_MIN_PLAYERS = 20
-BATTLE_REPORT_START = time(14, 30)
-BATTLE_REPORT_END = time(5, 0)
+BATTLE_REPORT_START = None
+BATTLE_REPORT_END = None
 
 # 去重状态（内存，全局按 EventId）
 _seen: set = set()
@@ -117,9 +119,43 @@ def _should_run_death_broadcast(
 
 def _should_run_battle_report(now: datetime | None = None) -> bool:
     """战报只在配置的 ZvZ 活跃时段运行；测试传入 naive UTC 时间。"""
-    current = (now or datetime.utcnow()) + timedelta(hours=8)
+    current = _display_datetime(now or datetime.utcnow())
     t = current.time()
-    return t >= BATTLE_REPORT_START or t < BATTLE_REPORT_END
+    start = _battle_report_window_start()
+    end = _battle_report_window_end()
+    if start <= end:
+        return start <= t < end
+    return t >= start or t < end
+
+
+def _display_datetime(dt: datetime) -> datetime:
+    try:
+        tz = ZoneInfo(config.DISPLAY_TZ)
+    except ZoneInfoNotFoundError:
+        tz = ZoneInfo("Asia/Shanghai")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(tz)
+
+
+def _parse_hhmm(value: str, default: time) -> time:
+    try:
+        hour, minute = str(value).split(":", 1)
+        return time(int(hour), int(minute))
+    except (TypeError, ValueError):
+        return default
+
+
+def _battle_report_window_start() -> time:
+    if isinstance(BATTLE_REPORT_START, time):
+        return BATTLE_REPORT_START
+    return _parse_hhmm(config.BATTLE_REPORT_WINDOW_START, time(14, 30))
+
+
+def _battle_report_window_end() -> time:
+    if isinstance(BATTLE_REPORT_END, time):
+        return BATTLE_REPORT_END
+    return _parse_hhmm(config.BATTLE_REPORT_WINDOW_END, time(5, 0))
 
 
 def _battle_candidate_id(row: dict[str, Any]) -> str:

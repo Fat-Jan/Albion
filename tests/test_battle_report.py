@@ -83,6 +83,22 @@ class BattleReportTest(unittest.TestCase):
         self.assertEqual(highlights["top_death_fame"]["name"], "Cathy")
         self.assertEqual(highlights["top_death_fame"]["death_fame"], 900_000)
 
+    def test_report_uses_configured_albionbb_web_base(self):
+        old_base = config.ALBIONBB_WEB_BASE
+        try:
+            config.ALBIONBB_WEB_BASE = "https://europe.albionbb.com"
+            report = build_battle_report(
+                _battle_detail(),
+                _battle_events(),
+                guild_name="Mika",
+            )
+        finally:
+            config.ALBIONBB_WEB_BASE = old_base
+
+        self.assertEqual(
+            report["battle_url"], "https://europe.albionbb.com/battles/123"
+        )
+
     def test_card_marks_participant_counts_and_player_leaders(self):
         report = build_battle_report(
             _battle_detail(),
@@ -125,6 +141,23 @@ class BattleReportAutoTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(auto._should_run_battle_report(datetime(2026, 6, 14, 15, 59)))
         self.assertTrue(auto._should_run_battle_report(datetime(2026, 6, 14, 20, 59)))
         self.assertFalse(auto._should_run_battle_report(datetime(2026, 6, 14, 21, 0)))
+
+    def test_battle_report_window_uses_configured_timezone_and_hours(self):
+        old_tz = config.DISPLAY_TZ
+        old_start = config.BATTLE_REPORT_WINDOW_START
+        old_end = config.BATTLE_REPORT_WINDOW_END
+        try:
+            config.DISPLAY_TZ = "UTC"
+            config.BATTLE_REPORT_WINDOW_START = "10:00"
+            config.BATTLE_REPORT_WINDOW_END = "11:00"
+
+            self.assertFalse(auto._should_run_battle_report(datetime(2026, 6, 14, 9, 59)))
+            self.assertTrue(auto._should_run_battle_report(datetime(2026, 6, 14, 10, 30)))
+            self.assertFalse(auto._should_run_battle_report(datetime(2026, 6, 14, 11, 0)))
+        finally:
+            config.DISPLAY_TZ = old_tz
+            config.BATTLE_REPORT_WINDOW_START = old_start
+            config.BATTLE_REPORT_WINDOW_END = old_end
 
     def test_seen_table_is_persistent_per_kook_guild_and_battle(self):
         repo.bind_guild("guild-a", "albion-a", "Mika", "admin")

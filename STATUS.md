@@ -5,6 +5,7 @@
 - M0-M6 已实现；欧服本地代码、配置默认值和文档默认标识已完成适配，欧服线上部署状态未确认。
 - 本地双版本维护约定：`/Users/arm/Desktop/vscode/Albion-EU-kook` 使用 `deploy/eu` 分支维护欧服，`/Users/arm/Desktop/vscode/Albion-ASIA-kook` 使用 `deploy/asia` 分支维护亚服；`main` 只当共享上游主线，不直接作为某个服务器实例的长期工作分支。
 - 分支同步规则：共享功能修复先做成独立提交，再 cherry-pick 到 `deploy/eu` 和 `deploy/asia`；不要把 `deploy/eu` 整体 merge 到 `deploy/asia`，也不要反向整体 merge，因为接口默认值、`.env.example`、运行证据、公会名和部署记录必须各自保留。
+- 已与亚服分支同步通用区服配置化能力：AlbionBB 网页链接、官方击杀板 server、显示时区和自动战报窗口均可通过环境变量调整；欧服默认值继续保持 `gameinfo-ams`、AODP `europe`、albionbb `eu/europe`、`live_ams` 和北京时间窗口。
 - 当前版本：`1.0`，来源 `bot/version.py`。
 - AI 辅助首发、只读查询增强和高频卡片露出已实现；AI 现在会出现在补装审核卡和自动 ZvZ 战报卡，但不参与审批、发组、撤组、改金额或发放标记。
 - ZvZ 战报聚合/卡片、AI 摘要、战报推送频道、最小本会参战人数阈值、持久去重表和 `auto.py` 定时推送代码路径已接入；欧服线上真实自动窗口待单独部署/确认后验证。
@@ -28,6 +29,7 @@
 
 ## Verification
 
+- 2026-06-16：双版本共享能力同步到欧服。本轮从亚服 `deploy/asia` cherry-pick 通用配置化提交并保留欧服默认值；`ALBIONBB_WEB_BASE`、`KILLBOARD_SERVER`、`DISPLAY_TZ*`、`BATTLE_REPORT_WINDOW_*` 继续可配置，卡片/战报/自动任务读取配置；未启动本地 bot，未部署服务器。验证：`.venv/bin/python -m unittest tests.test_query_cards tests.test_battle_report -v` 通过（15 个测试），`scripts/check.sh` 通过（124 个单元测试 + `compileall bot scripts tests`），`git diff --check HEAD` 通过；配置探针确认默认仍为 `gameinfo-ams`、AODP `europe`、albionbb `eu/europe`、`live_ams`、`Asia/Shanghai`、北京时间 `14:30-05:00`。
 - 2026-06-16：双分支差距复查。`git fetch --all --prune` 后确认 `/Users/arm/Desktop/vscode/Albion-EU-kook` 在 `deploy/eu` 且跟踪 `origin/deploy/eu`，`/Users/arm/Desktop/vscode/Albion-ASIA-kook` 在 `deploy/asia` 且跟踪 `origin/deploy/asia`，两个本地工作区均干净。`git merge-base origin/deploy/eu origin/deploy/asia` 返回 `031571b`，也就是亚服最新 `fix(战报): 支持按日期查询 AI 摘要` 已经包含在欧服分支历史中；当前没有“亚服新功能未拉进欧服”的缺口。现存差异主要是欧服化提交 `7c87e63`：欧服接口默认值、AI system prompt 区服标识、AlbionBB 网页链接配置化、北京时间显示测试、欧服接口文档和双工作区说明。处理结论：功能用 cherry-pick 双发；区服默认值和实例证据不做整分支互 merge。
 - 2026-06-16：真正欧服化收口复查。已确认本地 runtime 读取欧服默认：`GAMEINFO_BASE=https://gameinfo-ams.albiononline.com/api/gameinfo`、`AODP_BASE=https://europe.albion-online-data.com`、`ALBIONBB_BASE=https://api.albionbb.com/eu`、`ALBIONBB_WEB_BASE=https://europe.albionbb.com`、`KILLBOARD_SERVER=live_ams`，运行环境仍为本地 `.venv` + `DB_PATH=data/bot.db`。公网只读探针：gameinfo `/search?q=Top%20Squad` 返回 200（命中公会 `Top Squad`，id `7tmt12sOTkGgcqZL3jSy7Q`；详情接口返回 Founder `Soxxx`、MemberCount 154），AODP `/api/v2/stats/gold.json?count=1` 返回 200（rows=1），AlbionBB `/eu/battles?minPlayers=20&page=1` 返回 200（rows=20）。已用欧服 AODP 刷新本地武器/副手市场挂单低价参考：`.venv/bin/python -m scripts.refresh_price_reference` 输出 `items=3875 api_rows=116250 records=10595`；SQLite 复查 `market_price_reference=10595`、source=`aodp_prices_sell_min`、mainhand=9351、offhand=1244、`pragma integrity_check=ok`。文档同步：`欧服接口调研.md` 改为当前欧服状态，harness 计划中的“当前线上服务”改为亚服旧服务残留。本轮未启动真实 KOOK bot、未重启、未部署、未修改任何服务器。
 - 2026-06-16：澄清部署记录。阿里云新加坡 `/opt/albion-kook` 更可能是亚服旧服务/旧文档残留，不应作为欧服线上验收依据：该目录只读检查时不是 git 工作树，`.env` 仍覆盖 `GAMEINFO_BASE=https://gameinfo-sgp.albiononline.com/api/gameinfo`、`AODP_BASE=https://east.albion-online-data.com`、`ALBIONBB_BASE=https://api.albionbb.com/asia`；服务 `albion-kook.service` active/running，PID `1208143`，但未证明属于欧服实例。本轮未修改服务器、未重启 bot。欧服当前可确认范围是本地仓库适配和本地/公网接口验证。
