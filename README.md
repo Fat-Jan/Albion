@@ -195,12 +195,14 @@ nohup .venv/bin/python -m bot.main > bot.log 2>&1 &
 
 ## 运维命令
 
-同一个 `KOOK_TOKEN` 不能被两个正在运行的 bot 进程同时使用，否则会抢 KOOK WebSocket 连接并可能重复处理消息。调试线上同一个 bot token 前，先停止线上服务：
+当前新加坡服务器按双实例隔离：亚服使用 `/opt/albion-kook-asia` 与 `albion-kook-asia.service`，欧服使用 `/opt/albion-kook-eu` 与 `albion-kook-eu.service`。旧 `/opt/albion-kook` 单服务已归档移除，不要恢复为运行入口。
+
+同一个 `KOOK_TOKEN` 不能被两个正在运行的 bot 进程同时使用，否则会抢 KOOK WebSocket 连接并可能重复处理消息。调试亚服线上同一个 bot token 前，先停止亚服服务：
 
 ```bash
-systemctl stop albion-kook.service
+systemctl stop albion-kook-asia.service
 .venv/bin/python -m bot.main
-systemctl start albion-kook.service
+systemctl start albion-kook-asia.service
 ```
 
 如果本地 `.env` 使用独立开发 bot token，则可以直接启动本地机器人调试，不需要停止线上服务：
@@ -211,13 +213,13 @@ systemctl start albion-kook.service
 
 启动日志会打印安全诊断 `bot_id/token_fp/token_source`，用来确认实际生效 token；不要在日志、提交或汇报中输出 token 原文。
 
-如果用 systemd 托管，可按自己的部署路径创建服务后使用：
+当前亚服线上实例的 systemd 与日志命令：
 
 ```bash
-systemctl status albion-kook.service --no-pager --lines=80
-systemctl restart albion-kook.service
-journalctl -u albion-kook.service -n 100 --no-pager
-tail -80 /var/log/albion-kook/bot.log
+systemctl status albion-kook-asia.service --no-pager --lines=80
+systemctl restart albion-kook-asia.service
+journalctl -u albion-kook-asia.service -n 100 --no-pager
+tail -80 /var/log/albion-kook-asia/bot.log
 ```
 
 查看 bot 进程：

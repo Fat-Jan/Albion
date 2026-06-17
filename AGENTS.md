@@ -24,8 +24,8 @@
 ## 本地与线上调试
 
 - 同一个 `KOOK_TOKEN` 不能同时被本地 bot 和线上 systemd 服务使用。
-- 如果本地 `.env` 使用线上旧 token，必须确保服务器 `albion-kook.service` 已停止后再本地启动 bot。
-- 升级服务器代码时不要替换服务器上的旧 `KOOK_TOKEN`。
+- 如果本地 `.env` 使用已上线亚服实例的 token，必须确保 `albion-kook-asia.service` 已停止后再本地启动 bot。
+- 日常升级不要无故替换线上 `KOOK_TOKEN`；若用户明确确认本地 token 最新，先比对 token 指纹再同步，汇报时只写指纹。
 - 离线验证不得启动 `bot.main`，只跑测试和编译检查。
 
 ## 验证门禁

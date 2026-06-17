@@ -6,18 +6,18 @@
 
 - 项目是面向单个亚服公会的 KOOK 机器人，两条主线：管理员绑公会 + 玩家自助绑角色（名字匹配+审批），绑定后查询免输名字。
 - `README.md` / `使用说明书.md` 作为通用亚服版本说明维护；Mika 公会、阿里云实例、真实频道 ID 和活测证据继续留在 `STATUS.md` / 本文件，不回灌到通用 README。
-- 当前进度：**M0-M6 已实现并线上运行**，数据/逻辑对真实 API 验过；补装、播报、查询已在真实 bot 进程中跑。当前项目版本 `1.0`（`bot/version.py`，`/ping` 返回 `pong v1.0`）。AI 辅助已扩展为高频只读露出：`/助手`、`/战报 [日期]`、`/补装解释`、`@机器人` 自然语言只读入口、补装审核卡「AI 审核提示」、自动 ZvZ 战报卡「AI 摘要」；`/战报 6-15`、自然语言“昨晚战报/昨晚的战役”等日期参数按北京时间目标日 14:30 到次日 05:00 过滤。AI 仍不得审批、发组、撤组、改金额或标记发放。M7 出勤后置，等真实用户反馈明确考勤口径后再做。
+- 当前进度：**M0-M6 已实现，亚服已在新加坡服务器按双区服隔离方式上线**。旧 `/opt/albion-kook` 单服务已归档并移除，当前亚服线上实例是 `/opt/albion-kook-asia` + `albion-kook-asia.service`。当前项目版本 `1.0`（`bot/version.py`，`/ping` 返回 `pong v1.0`）。AI 辅助已扩展为高频只读露出：`/助手`、`/战报 [日期]`、`/补装解释`、`@机器人` 自然语言只读入口、补装审核卡「AI 审核提示」、自动 ZvZ 战报卡「AI 摘要」；`/战报 6-15`、自然语言“昨晚战报/昨晚的战役”等日期参数按北京时间目标日 14:30 到次日 05:00 过滤。AI 仍不得审批、发组、撤组、改金额或标记发放。M7 出勤后置，等真实用户反馈明确考勤口径后再做。
 - 项目已采用轻量 harness：后续接手先读 `AGENTS.md` 和 `STATUS.md`；离线门禁统一跑 `scripts/check.sh`。离线通过不等于 KOOK 真实交互已活测，涉及线上/真实 bot 的结论必须补充活测证据。
 - 测试用 KOOK 服务器可换（当前 id `4676167053713576`，bot 身份 Jianguomao#7691 只是当前测试身份）；绑定一律按运行时 guild_id 走，代码不写死服务器，机器人显示名别名也只通过 `KOOK_BOT_MENTION_ALIASES` 显式配置。当前测试服必须使用 `asia-` 前缀频道：`asia-✅绑定审批` `6280501542155342`、`asia-📢成员变动` `1203064556541945`、`asia-⚔️击杀播报` `4326560318750543`、`asia-💀阵亡播报` `5193310241387334`、`asia-🗺️战报推送` `3891092612097998`、`asia-📥补装申请` `8092855830265715`、`asia-🔍补装审核` `2772001930672157`、`asia-💰补装发放` `9380523626852434`、`asia-📣补装通知` `9980001624642186`；旧无前缀补装频道不再作为当前配置使用。`📯丨战报推送` `8139656704033247`、`击杀播报` `5938739897296829`、`死亡播报` `4201481428779754` 此前确实承载过亚服推送，但已被 `asia-` 前缀专用频道替代，并经用户点名授权删除；本地库残留 `broadcast_channel_id=5938739897296829` 已备份后清空。
 - 测试参考角色：armskey/muaowo（都不在 Mika）；需要 Mika 成员就从 `/guilds/{id}/members` 挑活跃的。
-- 实际运行环境是 **Python 3.13.12**（计划写 3.11+），khl.py 0.3.17 / httpx 0.28.1 / python-dotenv，3.13 兼容无碍；venv 在 `.venv/`。
+- 本地实际运行环境是 **Python 3.13.12**（计划写 3.11+），新加坡服务器运行 Python 3.11.2；khl.py 0.3.17 / httpx 0.28.1 / python-dotenv 均已验证兼容。
 - 技术栈定死：Python + khl.py（WebSocket）+ httpx + SQLite；数据源默认走亚服三件套（gameinfo-sgp / east AODP / albionbb-asia），AlbionBB 网页链接、官方击杀板 server、显示时区和自动战报窗口已配置化，亚服默认仍是 east.albionbb.com / live_sgp / 北京时间窗口，别混区。
 - 所有设计决议已收口进 `KOOK机器人实现计划.md` 第十一节，无遗留待定项。
 - 项目 GitHub 仓库地址：`https://github.com/Fat-Jan/Albion.git`，本地 Git remote `origin` 已指向该地址。
 - 仓库与分支真相：远端仓库为 `https://github.com/Fat-Jan/Albion.git`；亚服目录 `/Users/arm/Desktop/vscode/Albion-ASIA-kook` 固定使用 `deploy/asia` 分支；欧服目录 `/Users/arm/Desktop/vscode/Albion-EU-kook` 固定使用 `deploy/eu` 分支；`main` 只当共享上游主线，不直接作为某个服务器实例长期开发分支。双目录 VS Code 入口在 `/Users/arm/Desktop/vscode/Albion-ASIA-EU-kook.code-workspace`。
 - 功能同步规则：共享功能修复用独立提交双向 cherry-pick；不要整分支互 merge。整分支 merge 会把区服接口默认值、`.env.example`、公会名、运行证据和部署记录混进另一实例。
-- 当前线上服务：阿里云新加坡 `aliyun_singapore` 上的 `albion-kook.service`，目录 `/opt/albion-kook`，日志 `/var/log/albion-kook/bot.log`；线上继续使用旧 KOOK bot/token。2026-06-16 00:44 已切回服务器运行 `/战报 [日期]` 修复版本，PID `1208143`，启动命令 `/opt/albion-kook/.venv/bin/python -m bot.main`；服务器 `.env` 已开启 AI 且保留旧 token/key。后续升级服务器时**不要替换服务器上的旧 `KOOK_TOKEN`**。若后续改回独立开发 bot token，本地可不停服务器直接调试。
-- 当前数据库概况（2026-06-18 复查）：`guild_binding=1`、`player_binding=2`、`pending_approval=5`、`regear_request=0`、`regear_reviewer_request=0`、`market_price_reference=6234`，`pragma integrity_check=ok`。测试服 `4676167053713576` 当前 `broadcast_channel_id=None`、`battle_report_channel_id=3891092612097998`，旧三播报频道字段命中 `old_three_hits=none`。2026-06-18 交叉比对亚服/欧服 `4676167053713576` 的运营+补装 9 个频道字段，`shared_count=0`；本地亚服 bot PID `77525`，token 诊断 `bot_id=49025 token_fp=45a5a99e7b1b token_source=env_file`。
+- 远端注意：阿里云新加坡 `aliyun_singapore` 已完成双区服替换部署。旧 `albion-kook.service`、`/opt/albion-kook`、`/var/log/albion-kook` 已归档到 `/root/albion-kook-legacy-20260618-022847` 后移除运行路径；当前只保留 `/opt/albion-kook-asia` + `albion-kook-asia.service` 和 `/opt/albion-kook-eu` + `albion-kook-eu.service`。亚服目录 checkout `deploy/asia` `fcd19d6`，远端 `.env` 显式 `KOOK_REGION_CODE=asia`、`gameinfo-sgp`、AODP `east`、AlbionBB `asia/east`、`KILLBOARD_SERVER=live_sgp`，token 指纹 `45a5a99e7b1b`，启动日志 bot_id `49025` 且 KOOK WebSocket `[ init ] launched`；欧服目录 checkout `deploy/eu` `b79667c`，远端 `.env` 显式 `KOOK_REGION_CODE=eu`、`gameinfo-ams`、AODP `europe`、AlbionBB `eu/europe`、`KILLBOARD_SERVER=live_ams`，token 指纹 `2262e4d75d7b`，启动日志 bot_id `49050` 且 KOOK WebSocket `[ init ] launched`。两服务均 `active`/`enabled`，本地两个 bot 进程已停止，避免同 token 双开。
+- 当前数据库概况（2026-06-18 复查）：`guild_binding=1`、`player_binding=2`、`pending_approval=5`、`regear_request=0`、`regear_reviewer_request=0`、`market_price_reference=6234`，`pragma integrity_check=ok`。测试服 `4676167053713576` 当前 `broadcast_channel_id=None`、`battle_report_channel_id=3891092612097998`，旧三播报频道字段命中 `old_three_hits=none`。2026-06-18 交叉比对亚服/欧服 `4676167053713576` 的运营+补装 9 个频道字段，`shared_count=0`；远端 `scripts.ensure_region_channels --guild-id 4676167053713576 --write-db` 已确认 `asia-` 与 `eu-` 两套前缀分组/频道都存在且互不复用。
 
 ## 已收口的关键决议（2026-06-14）
 
@@ -31,7 +31,7 @@
 - 文档入口：`README.md` 已更新为当前状态；`使用说明书.md` 已新增，覆盖管理员初始化、成员绑定、补装流程、自动任务、估值口径和运维排错。
 - AI 辅助：已按“受控 AI 服务 + 窄白名单只读路由”上线，使用 LongCat/OpenAI 兼容接口（当前模型 `LongCat-2.0-Preview`）。AI 当前会出现在 `/战报`、`/助手`、`/补装解释`、补装审核卡「AI 审核提示」和自动 ZvZ 战报卡「AI 摘要」；不进入绑定审批、补装审批、金额改写、发组/撤组或发放标记链路。普通成员通过 `/助手` 可查本人绑定状态、最近击杀/阵亡、本人补装状态，管理员/补装审核员可查全服补装队列，管理员可查频道配置概况。AI 事实包带 `schema_version/tool`，输出层拦截危险动作声明并脱敏疑似 Token/API Key；AI 回复凡提到时间必须标注口径：服务器/API 时间 UTC、数据库/服务器时间 UTC，或北京时间 UTC+8。
 - 版本号控制：当前版本 `1.0`，代码单一来源是 `bot/version.py`；`bot.main.ping_text()` 使用同一来源，测试见 `tests/test_version.py`。
-- 战报推送：`bot/albion/battle_report.py`、`bot/cards/battle_report_cards.py`、`bot/tasks/auto.py` 已接入聚合、卡片、AI 摘要、北京时间窗口、专属频道推送、本会最小人数阈值和 SQLite 持久去重；`/设置 战报推送频道`、`/设置 战报频道`、`/设置 战报本会最小人数` 已接入，运行时最低 20 名本会参战者才推送。2026-06-15 本机真实 KOOK 发送路径曾确认测试战报只推到当时的专属战报频道 `8139656704033247`，没有走统一/击杀频道 `5938739897296829` 或阵亡频道 `4201481428779754`，并写入 `battle_report_seen`；2026-06-18 已迁移为 `asia-🗺️战报推送` `3891092612097998`。22:55 已部署到线上 systemd，真实自动命中和 AI 摘要质量继续看日志和频道输出，不要提前写成已稳定命中。
+- 战报推送：`bot/albion/battle_report.py`、`bot/cards/battle_report_cards.py`、`bot/tasks/auto.py` 已接入聚合、卡片、AI 摘要、北京时间窗口、专属频道推送、本会最小人数阈值和 SQLite 持久去重；`/设置 战报推送频道`、`/设置 战报频道`、`/设置 战报本会最小人数` 已接入，运行时最低 20 名本会参战者才推送。2026-06-15 本机真实 KOOK 发送路径曾确认测试战报只推到当时的专属战报频道 `8139656704033247`，没有走统一/击杀频道 `5938739897296829` 或阵亡频道 `4201481428779754`，并写入 `battle_report_seen`；2026-06-18 已迁移为 `asia-🗺️战报推送` `3891092612097998`。旧 22:55 线上 systemd 记录属于已归档移除的单服务历史，当前亚服线上入口是 `albion-kook-asia.service`；真实自动命中和 AI 摘要质量继续看日志和频道输出，不要提前写成已稳定命中。
 
 ## 坑点 / 注意
 
@@ -54,7 +54,7 @@
 - **遭遇规模分层预估**：`numberOfParticipants` 是"补刀人数"（常=4，会把 ZvZ 误标小团，已弃用）。改用 `GroupMembers`(=主角所在小队，恒含主角本人) 做队伍口径 `scale_label`（单人1/小团2-7/团战8-20/ZvZ20+，免 API，用于列表/播报/估值）。详情卡用 `battle_scale_line`：查 `/battles/{id}` 整场人数（小规模≤6/小团≤30/团战≤80/ZvZ>80）显示「你队N人 整场M人 类别」+ 尖刀小队推测。
 - **尖刀/炸弹小队启发式**（仅详情卡）：你队 `GroupMembers≤10` 且 整场 `players≥40` → 标「⚡尖刀/炸弹小队?(推测)」。`gi.battle(id)` 查询，失败回退队伍口径。
 - **KOOK 卡片图片坑**：`Module.ImageGroup` 内 `Element.Image` 不能带 `size`（带 `sm` 会 40000 校验失败），用默认即可；外链图（官方渲染 `render.albiononline.com/v1/item/{id}.png?quality=N`）KOOK 服务端会抓取并缓存到自有 CDN，无需本地中转。`items.render_url()` 是图床方案的唯一改动点。
-- **同 token 调试坑**：服务器 systemd 和本地开发不能同时使用同一个 `KOOK_TOKEN` 跑 bot，否则会抢 KOOK WebSocket/重复处理消息。2026-06-15 当前本地 `.env` 已临时改回线上旧 token，因此服务器必须保持 `systemctl stop albion-kook.service`；调完本地后再 `systemctl start albion-kook.service`。如果本地改回独立开发 bot token，才可以不停线上服务直接调试。启动日志会打印安全诊断 `bot_id/token_fp/token_source`，不要打印 token 原文。
+- **同 token 调试坑**：任意两个运行中的 bot 不能同时使用同一个 `KOOK_TOKEN`，否则会抢 KOOK WebSocket/重复处理消息。调试前先确认目标实例、目录、systemd 服务和 token 指纹；如果本地使用同一个真实 bot token，必须先停掉对应实例。亚服当前服务名是 `albion-kook-asia.service`，欧服当前服务名是 `albion-kook-eu.service`。启动日志会打印安全诊断 `bot_id/token_fp/token_source`，不要打印 token 原文。
 
 ## 进度
 
