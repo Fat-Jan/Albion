@@ -243,6 +243,45 @@ class RegisterFlowTest(unittest.IsolatedAsyncioTestCase):
             any("绑定申请 `#1` 已通过" in card_text(msg) for msg in channels["approval"].messages)
         )
 
+    async def test_bind_notification_skips_non_region_configured_channel(self):
+        repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "member_role_id", "member-role")
+        repo.set_setting("guild", "approval_channel_id", "approval")
+        repo.set_setting("guild", "member_change_channel_id", "member-change")
+        pid = repo.create_pending("guild", "user-1", "player-1", "Latano")
+        channels = {
+            "approval": FakeChannel("approval", name="asia-✅绑定审批"),
+            "member-change": FakeChannel("member-change", name="📢成员变动"),
+        }
+        bot = FakeBot(channels, FakeGuild(FakeUser(["admin-role"], user_id="admin")))
+
+        await register._handle_bind_review(
+            bot,
+            "approve_bind",
+            {"pid": pid},
+            "guild",
+            "admin",
+            channels["approval"],
+        )
+
+        self.assertEqual(repo.get_pending(pid)["status"], "approved")
+        self.assertEqual(channels["member-change"].messages, [])
+
+    async def test_bind_cmd_skips_non_region_approval_channel(self):
+        repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "member_role_id", "member-role")
+        repo.set_setting("guild", "approval_channel_id", "approval")
+        channels = {"approval": FakeChannel("approval", name="✅绑定审批")}
+        bot = FakeCommandBot(channels, FakeGuild(FakeUser(["admin-role"], user_id="admin")))
+        register.register(bot, FakeGameInfo())
+        msg = FakeMessage(FakeChannel("apply", name="asia-📥补装申请"), FakeUser([], user_id="user-1"))
+
+        await bot.commands["绑定"](msg, "Latano")
+
+        self.assertEqual(channels["approval"].messages, [])
+        self.assertIsNone(repo.get_open_pending("user-1", "guild"))
+        self.assertTrue(any("提交审批失败" in reply for reply in msg.replies))
+
 
 class FakeUser:
     def __init__(self, roles, user_id="user"):
@@ -300,6 +339,27 @@ class FakeBot:
         self.client = FakeClient(channels, guild)
 
 
+class FakeCommandBot(FakeBot):
+    def __init__(self, channels, guild):
+        super().__init__(channels, guild)
+        self.commands = {}
+        self.events = []
+
+    def command(self, name):
+        def decorate(fn):
+            self.commands[name] = fn
+            return fn
+
+        return decorate
+
+    def on_event(self, event_type):
+        def decorate(fn):
+            self.events.append((event_type, fn))
+            return fn
+
+        return decorate
+
+
 class FakeGate:
     def __init__(self):
         self.requests = []
@@ -310,10 +370,32 @@ class FakeGate:
 
 
 class FakeChannel:
-    def __init__(self, channel_id):
+    def __init__(self, channel_id, name=None):
         self.id = channel_id
+        self.name = name
         self.messages = []
 
     async def send(self, message):
         self.messages.append(message)
         return {"msg_id": f"msg-{self.id}-{len(self.messages)}"}
+
+
+class FakeMessage:
+    def __init__(self, channel, author):
+        self.ctx = type("Ctx", (), {"guild": FakeGuild(author), "channel": channel})()
+        self.author = author
+        self.replies = []
+
+    async def reply(self, message):
+        self.replies.append(message)
+
+
+class FakeGameInfo:
+    async def find_player(self, name):
+        return {
+            "Id": "player-1",
+            "Name": name,
+            "GuildId": "albion-guild",
+            "GuildName": "Albion Guild",
+            "KillFame": 1000,
+        }

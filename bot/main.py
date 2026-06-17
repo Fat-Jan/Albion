@@ -6,7 +6,7 @@ import logging
 
 from khl import Bot, Message
 
-from bot import config
+from bot import config, region_scope
 from bot.ai.client import AIClient, AIClientConfig
 from bot.ai.service import AIService
 from bot.albion.client import AlbionClient
@@ -41,6 +41,8 @@ def build_bot() -> Bot:
 
     @bot.command(name="ping")
     async def ping(msg: Message):
+        if not region_scope.should_process_message(msg):
+            return
         await msg.reply(ping_text())
 
     admin.register(bot, gi)

@@ -6,6 +6,7 @@ import logging
 
 from khl import Bot, Message
 
+from bot import region_scope
 from bot.albion import items, valuation
 from bot.albion.gameinfo import GameInfo
 from bot.albion.market import ROYAL_CITIES, Market
@@ -18,26 +19,38 @@ log = logging.getLogger(__name__)
 def register(bot: Bot, gi: GameInfo, mk: Market) -> None:
     @bot.command(name="战绩")
     async def stats_cmd(msg: Message, *args):
+        if not region_scope.should_process_message(msg):
+            return
         await reply_stats(msg, gi, args)
 
     @bot.command(name="估值")
     async def value_cmd(msg: Message, *args):
+        if not region_scope.should_process_message(msg):
+            return
         await reply_valuation(msg, gi, mk, args)
 
     @bot.command(name="战役")
     async def battle_cmd(msg: Message, *args):
+        if not region_scope.should_process_message(msg):
+            return
         await reply_battles(msg, gi)
 
     @bot.command(name="物价")
     async def price_cmd(msg: Message, *args):
+        if not region_scope.should_process_message(msg):
+            return
         await reply_price(msg, mk, args)
 
     @bot.command(name="金价")
     async def gold_cmd(msg: Message, *args):
+        if not region_scope.should_process_message(msg):
+            return
         await reply_gold(msg, mk)
 
     @bot.command(name="榜单")
     async def rank_cmd(msg: Message, *args):
+        if not region_scope.should_process_message(msg):
+            return
         await reply_rank(msg, gi, args)
 
 

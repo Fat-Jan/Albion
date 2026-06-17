@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from khl import Bot
 
-from bot import config
+from bot import config, region_scope
 from bot.ai.service import AIService
 from bot.albion.battle_report import build_battle_report
 from bot.albion import valuation
@@ -264,6 +264,19 @@ async def _run_battle_report_tick(
             ai_summary = await _ai_battle_report_summary(ai_service, report)
             try:
                 channel = await bot.client.fetch_public_channel(gb["battle_report_channel_id"])
+                if not region_scope.configured_channel_matches_region(
+                    gb,
+                    gb["battle_report_channel_id"],
+                    ("battle_report_channel_id",),
+                    channel,
+                ):
+                    log.info(
+                        "跳过非本区战报频道 guild=%s channel=%s name=%s",
+                        kgid,
+                        gb["battle_report_channel_id"],
+                        getattr(channel, "name", None),
+                    )
+                    continue
                 await channel.send(battle_report_card(report, ai_summary=ai_summary))
             except Exception as exc:
                 log.warning("推送战报失败 battle=%s guild=%s: %s", battle_id, guild_name, exc)
@@ -331,6 +344,23 @@ def register(bot: Bot, gi: GameInfo, mk: Market, ai_service: AIService | None = 
                     return
                 try:
                     channel = await bot.client.fetch_public_channel(channel_id)
+                    if not region_scope.configured_channel_matches_region(
+                        gb,
+                        channel_id,
+                        (
+                            "broadcast_channel_id",
+                            "kill_broadcast_channel_id",
+                            "death_broadcast_channel_id",
+                        ),
+                        channel,
+                    ):
+                        log.info(
+                            "跳过非本区播报频道 guild=%s channel=%s name=%s",
+                            gb.get("kook_guild_id"),
+                            channel_id,
+                            getattr(channel, "name", None),
+                        )
+                        continue
                     est = None
                     needs_loss_check = (
                         int(ev.get("TotalVictimKillFame") or 0)
@@ -376,6 +406,25 @@ def register(bot: Bot, gi: GameInfo, mk: Market, ai_service: AIService | None = 
                 if notify_id:
                     try:
                         ch = await bot.client.fetch_public_channel(notify_id)
+                        if not region_scope.configured_channel_matches_region(
+                            gb,
+                            notify_id,
+                            (
+                                "member_change_channel_id",
+                                "broadcast_channel_id",
+                                "death_broadcast_channel_id",
+                                "kill_broadcast_channel_id",
+                                "approval_channel_id",
+                            ),
+                            ch,
+                        ):
+                            log.info(
+                                "跳过非本区成员变动频道 guild=%s channel=%s name=%s",
+                                kgid,
+                                notify_id,
+                                getattr(ch, "name", None),
+                            )
+                            continue
                         await ch.send(
                             f"🚪 (met){pb['kook_user_id']}(met) 的角色"
                             f"「{pb['albion_player_name']}」已退会，已撤销会员身份组。"

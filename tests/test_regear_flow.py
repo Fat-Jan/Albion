@@ -224,6 +224,27 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("大额！", text)
         self.assertIn("总损失 `1000.0万` 银", text)
 
+    async def test_death_broadcast_skips_non_region_channel(self):
+        repo.bind_guild("guild", "guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "broadcast_channel_id", "broadcast")
+        auto._primed = True
+        auto._seen.clear()
+        auto._seen_order.clear()
+        auto._last_death_broadcast_at = None
+        channels = {"broadcast": FakeChannel("broadcast", name="击杀播报")}
+        bot = FakeScheduledBot(channels)
+        auto.register(
+            bot,
+            FakeBroadcastGameInfo(
+                [_broadcast_event(fame=1_000_001, killer_guild_id="guild")]
+            ),
+            FakeBroadcastMarket(loss_total=0),
+        )
+
+        await bot.task.interval_tasks["death_broadcast"]()
+
+        self.assertEqual(channels["broadcast"].messages, [])
+
     async def _run_death_broadcast(self, event: dict, market) -> object:
         repo.bind_guild("guild", "guild", "Albion Guild", "admin")
         repo.set_setting("guild", "broadcast_channel_id", "broadcast")
@@ -273,6 +294,23 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
             ),
             "approval",
         )
+
+    async def test_member_review_skips_non_region_notify_channel(self):
+        repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "member_role_id", "member")
+        repo.set_setting("guild", "member_change_channel_id", "member-change")
+        repo.set_player_binding("user-1", "guild", "player-1", "Latano")
+        channels = {"member-change": FakeChannel("member-change", name="📢成员变动")}
+        bot = FakeScheduledBot(channels)
+        auto.register(
+            bot,
+            FakeBroadcastGameInfo([{"Id": "other-player"}]),
+            FakeBroadcastMarket(loss_total=0),
+        )
+
+        await bot.task.cron_tasks["member_review"]()
+
+        self.assertEqual(channels["member-change"].messages, [])
 
     def test_death_broadcast_interval_uses_shorter_evening_window(self):
         self.assertEqual(auto._death_broadcast_interval_seconds(datetime(2026, 6, 14, 19, 59)), 240)
@@ -412,6 +450,44 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(updates), 1)
         self.assertIn("当前状态：`已拒绝`", updates[0].params["json"]["content"])
 
+    async def test_regear_reviewer_notice_skips_non_region_notify_channel(self):
+        repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "approval_channel_id", "approval")
+        repo.set_setting("guild", "member_change_channel_id", "member-change")
+        repo.set_setting("guild", "regear_reviewer_role_ids", "reviewer")
+        rid = repo.create_regear_reviewer_request("guild", "user-1")
+        channels = {
+            "approval": FakeChannel("approval", name="asia-✅绑定审批"),
+            "member-change": FakeChannel("member-change", name="📢成员变动"),
+        }
+        bot = FakeBot(channels, FakeGuild(FakeUser([], user_id="owner")))
+
+        await regear._handle_reviewer_request_review(
+            bot,
+            "regear_reviewer_reject",
+            {"rid": rid},
+            "guild",
+            "owner",
+            channels["approval"],
+        )
+
+        self.assertEqual(repo.get_regear_reviewer_request(rid)["status"], "rejected")
+        self.assertEqual(channels["member-change"].messages, [])
+
+    async def test_regear_reviewer_apply_card_skips_non_region_approval_channel(self):
+        repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "approval_channel_id", "approval")
+        repo.set_setting("guild", "regear_reviewer_role_ids", "reviewer")
+        bot = FakeCommandBot({"approval": FakeChannel("approval", name="✅绑定审批")}, FakeGuild(FakeUser([])))
+        regear.register(bot, FakeGameInfo(sample_regear_event("event-1")), FakeMarket())
+        msg = FakeMessage(FakeChannel("apply", name="asia-📥补装申请"), FakeUser([], user_id="user-1"))
+
+        await bot.commands["补装审核"](msg)
+
+        self.assertEqual(bot.client.channels["approval"].messages, [])
+        self.assertIsNone(repo.get_open_regear_reviewer_request("guild", "user-1"))
+        self.assertTrue(any("提交失败" in str(message) for message in msg.replies))
+
     async def test_refresh_regear_estimate_updates_stored_value(self):
         rid = repo.create_regear("guild", "user", "player", "event-1", 100)
         gi = FakeGameInfo(
@@ -547,6 +623,35 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("T8.1", text)
         self.assertTrue(any(b["value"] == KILLBOARD_URL.format(eid="event-1") for b in buttons))
 
+    async def test_regear_approve_skips_non_region_payout_and_notify_channels(self):
+        repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "regear_reviewer_role_ids", "reviewer")
+        repo.set_setting("guild", "regear_payout_channel_id", "payout")
+        repo.set_setting("guild", "regear_notify_channel_id", "notify")
+        rid = repo.create_regear("guild", "user-1", "player-1", "event-1", 100)
+        channels = {
+            "review": FakeChannel("review", name="asia-🔍补装审核"),
+            "payout": FakeChannel("payout", name="💰补装发放"),
+            "notify": FakeChannel("notify", name="eu-📣补装通知"),
+        }
+        bot = FakeBot(channels, FakeGuild(FakeUser(["reviewer"], user_id="reviewer-user")))
+
+        await regear._handle_review(
+            bot,
+            FakeGameInfo(sample_regear_event("event-1")),
+            FakeMarket(),
+            "regear_approve",
+            {"rid": rid},
+            "guild",
+            "reviewer-user",
+            channels["review"],
+        )
+
+        self.assertEqual(repo.get_regear(rid)["status"], "approved")
+        self.assertEqual(channels["notify"].messages, [])
+        self.assertEqual(channels["payout"].messages, [])
+        self.assertTrue(any("待发放卡" in str(message) for message in channels["review"].messages))
+
     async def test_regear_approve_updates_original_review_card_status(self):
         repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
         repo.set_setting("guild", "regear_reviewer_role_ids", "reviewer")
@@ -602,6 +707,31 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("**装备明细**", text)
         self.assertIn("T6.3", text)
         self.assertTrue(any(b["value"] == KILLBOARD_URL.format(eid="event-1") for b in card_buttons(notice)))
+
+    async def test_regear_reject_skips_non_region_notify_channel(self):
+        repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "regear_reviewer_role_ids", "reviewer")
+        repo.set_setting("guild", "regear_notify_channel_id", "notify")
+        rid = repo.create_regear("guild", "user-1", "player-1", "event-1", 100)
+        channels = {
+            "review": FakeChannel("review", name="asia-🔍补装审核"),
+            "notify": FakeChannel("notify", name="补装通知"),
+        }
+        bot = FakeBot(channels, FakeGuild(FakeUser(["reviewer"], user_id="reviewer-user")))
+
+        await regear._handle_review(
+            bot,
+            FakeGameInfo(sample_regear_event("event-1")),
+            FakeMarket(),
+            "regear_reject",
+            {"rid": rid, "reason": "装备/金额异常"},
+            "guild",
+            "reviewer-user",
+            channels["review"],
+        )
+
+        self.assertEqual(repo.get_regear(rid)["status"], "rejected")
+        self.assertEqual(channels["notify"].messages, [])
 
     async def test_regear_reject_updates_original_review_card_status(self):
         repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
@@ -680,6 +810,30 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("#1", channels["apply"].messages[-1])
         self.assertIn("已提交补装申请", channels["apply"].messages[-1])
+
+    async def test_regear_pick_skips_non_region_review_channel(self):
+        repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "regear_review_channel_id", "review")
+        repo.set_player_binding("user-1", "guild", "player-1", "Latano")
+        channels = {
+            "apply": FakeChannel("apply", name="asia-📥补装申请"),
+            "review": FakeChannel("review", name="🔍补装审核"),
+        }
+        bot = FakeBot(channels, FakeGuild(FakeUser([], user_id="user-1")))
+
+        await regear._handle_pick(
+            bot,
+            FakeGameInfo(sample_regear_event("event-1")),
+            FakeMarket(),
+            {"eid": "event-1"},
+            "guild",
+            "user-1",
+            channels["apply"],
+        )
+
+        self.assertEqual(channels["review"].messages, [])
+        self.assertEqual(repo.get_regear(1)["status"], "rejected")
+        self.assertTrue(any("提交失败" in str(message) for message in channels["apply"].messages))
 
     async def test_regear_pick_review_card_includes_ai_review_hint_when_available(self):
         repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
@@ -1030,14 +1184,15 @@ class FakeMarket:
 
 
 class FakeBroadcastGameInfo:
-    def __init__(self, events):
+    def __init__(self, events, members=None):
         self.events_data = events
+        self.members_data = members if members is not None else events
 
     async def events(self, limit=51, offset=0):
         return self.events_data if offset == 0 else []
 
     async def guild_members(self, guild_id):
-        return []
+        return self.members_data
 
 
 class FakeBroadcastMarket:
@@ -1119,6 +1274,27 @@ class FakeBot:
         self.client = FakeClient(channels, guild)
 
 
+class FakeCommandBot(FakeBot):
+    def __init__(self, channels, guild):
+        super().__init__(channels, guild)
+        self.commands = {}
+        self.events = []
+
+    def command(self, name):
+        def decorate(fn):
+            self.commands[name] = fn
+            return fn
+
+        return decorate
+
+    def on_event(self, event_type):
+        def decorate(fn):
+            self.events.append((event_type, fn))
+            return fn
+
+        return decorate
+
+
 class FakeScheduledBot:
     def __init__(self, channels):
         self.client = FakeClient(channels, FakeGuild(FakeUser([])))
@@ -1155,13 +1331,24 @@ class FakeGate:
 
 
 class FakeChannel:
-    def __init__(self, channel_id):
+    def __init__(self, channel_id, name=None):
         self.id = channel_id
+        self.name = name
         self.messages = []
 
     async def send(self, message):
         self.messages.append(message)
         return {"msg_id": f"msg-{self.id}-{len(self.messages)}"}
+
+
+class FakeMessage:
+    def __init__(self, channel, author):
+        self.ctx = type("Ctx", (), {"guild": type("GuildCtx", (), {"id": "guild"})(), "channel": channel})()
+        self.author = author
+        self.replies = []
+
+    async def reply(self, message):
+        self.replies.append(message)
 
 
 def sample_regear_event(event_id="event-1"):
