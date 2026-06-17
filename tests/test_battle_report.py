@@ -159,7 +159,7 @@ class BattleReportAutoTest(unittest.IsolatedAsyncioTestCase):
         repo.bind_guild("guild", "albion-guild", "Mika", "admin")
         repo.set_setting("guild", "battle_report_channel_id", "battle-channel")
         repo.set_setting("guild", "battle_report_min_guild_players", 2)
-        bot = FakeBot()
+        bot = FakeBot(channel_names={"battle-channel": "eu-🗺️战报推送"})
         gi = FakeBattleGameInfo(_battle_detail_with_guild_players(20), _battle_events())
         bb = FakeAlbionBB(
             [
@@ -180,6 +180,31 @@ class BattleReportAutoTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bb.calls, [{"minPlayers": 20, "page": 1}])
         self.assertEqual(bot.client.channels["battle-channel"].send_count, 1)
         self.assertTrue(repo.has_seen_battle_report("guild", "123"))
+
+    async def test_battle_report_tick_skips_non_region_channel_without_marking_seen(self):
+        repo.bind_guild("guild", "albion-guild", "Mika", "admin")
+        repo.set_setting("guild", "battle_report_channel_id", "battle-channel")
+        repo.set_setting("guild", "battle_report_min_guild_players", 2)
+        bot = FakeBot(channel_names={"battle-channel": "🗺️战报推送"})
+        gi = FakeBattleGameInfo(_battle_detail_with_guild_players(20), _battle_events())
+        bb = FakeAlbionBB(
+            [
+                {
+                    "albionId": "123",
+                    "guilds": [{"name": "Mika", "killFame": 32000}],
+                }
+            ]
+        )
+
+        await auto._run_battle_report_tick(
+            bot,
+            gi,
+            bb,
+            now=datetime(2026, 6, 14, 6, 30),
+        )
+
+        self.assertEqual(bot.client.channels["battle-channel"].send_count, 0)
+        self.assertFalse(repo.has_seen_battle_report("guild", "123"))
 
     async def test_battle_report_tick_includes_ai_summary_when_available(self):
         repo.bind_guild("guild", "albion-guild", "Mika", "admin")
@@ -460,25 +485,32 @@ class FakeAIService:
 
 
 class FakeBot:
-    def __init__(self, *, fail_send=False):
-        self.client = FakeClient(fail_send=fail_send)
+    def __init__(self, *, fail_send=False, channel_names=None):
+        self.client = FakeClient(fail_send=fail_send, channel_names=channel_names)
 
 
 class FakeClient:
-    def __init__(self, *, fail_send=False):
+    def __init__(self, *, fail_send=False, channel_names=None):
         self.fail_send = fail_send
+        self.channel_names = dict(channel_names or {})
         self.channels = {}
 
     async def fetch_public_channel(self, channel_id):
         channel = self.channels.get(channel_id)
         if channel is None:
-            channel = FakeChannel(fail_send=self.fail_send)
+            channel = FakeChannel(
+                channel_id=channel_id,
+                name=self.channel_names.get(channel_id),
+                fail_send=self.fail_send,
+            )
             self.channels[channel_id] = channel
         return channel
 
 
 class FakeChannel:
-    def __init__(self, *, fail_send=False):
+    def __init__(self, *, channel_id=None, name=None, fail_send=False):
+        self.id = channel_id
+        self.name = name
         self.fail_send = fail_send
         self.send_count = 0
 

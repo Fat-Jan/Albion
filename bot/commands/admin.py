@@ -6,7 +6,7 @@ import re
 
 from khl import Bot, EventTypes, Message
 
-from bot import perms
+from bot import perms, region_scope
 from bot.albion.gameinfo import GameInfo
 from bot.cards.admin_cards import MAX_CANDIDATES, guild_select_card
 from bot.store import repo
@@ -21,6 +21,14 @@ REGEAR_CENTER_CHANNELS = {
     "regear_review_channel_id": "🔍补装审核",
     "regear_payout_channel_id": "💰补装发放",
     "regear_notify_channel_id": "📣补装通知",
+}
+OPERATIONS_CENTER_CATEGORY_NAME = "📡运营中心"
+OPERATIONS_CENTER_CHANNELS = {
+    "approval_channel_id": "✅绑定审批",
+    "member_change_channel_id": "📢成员变动",
+    "kill_broadcast_channel_id": "⚔️击杀播报",
+    "death_broadcast_channel_id": "💀阵亡播报",
+    "battle_report_channel_id": "🗺️战报推送",
 }
 REGEAR_SPLIT_CHANNEL_KEYS = {
     "补装申请频道": "regear_apply_channel_id",
@@ -67,16 +75,27 @@ async def _resolve_role(guild, value: str):
 
 async def _resolve_channel(guild, value: str):
     """频道：优先 #提及/数字 id，回退按名字匹配。返回 id 字符串或 None。"""
+    if region_scope.has_known_region_prefix(value) and not region_scope.channel_name_matches_region(value):
+        return None
     cid = perms.parse_channel_id(value)
-    if cid:
-        return cid
     try:
         channels = await guild.fetch_channel_list()
     except Exception as exc:
         log.warning("拉取频道失败: %s", exc)
         return None
+    if cid:
+        for c in channels:
+            if str(getattr(c, "id", "")) == str(cid) and region_scope.is_reusable_region_channel(c):
+                return cid
+        return None
+    wanted = {
+        str(value or "").strip(),
+        region_scope.scoped_name(value),
+        region_scope.strip_known_prefix(value),
+    }
     for c in channels:
-        if getattr(c, "name", None) == value:
+        name = getattr(c, "name", None)
+        if name in wanted and region_scope.is_reusable_region_channel(c):
             return c.id
     return None
 
@@ -185,18 +204,115 @@ async def _guess_bot_role_ids(bot: Bot, roles: list) -> list[str]:
 
 
 async def _create_regear_center(bot: Bot, guild, binding: dict) -> tuple[object, dict[str, object], list[str]]:
-    category = await guild.create_channel_category(REGEAR_CENTER_CATEGORY_NAME)
-    channels = {}
-    for field, name in REGEAR_CENTER_CHANNELS.items():
-        channels[field] = await guild.create_text_channel(name, category)
+    category, channels = await _create_regear_center_channels(guild)
     warnings = await _apply_regear_center_permissions(bot, guild, channels, binding)
     return category, channels, warnings
+
+
+async def _find_region_category(guild, base_name: str, fallback_channels: list[object]) -> object | None:
+    scoped_category_name = region_scope.scoped_name(base_name)
+    categories = []
+    fetch_categories = getattr(guild, "fetch_channel_category_list", None)
+    if fetch_categories:
+        try:
+            categories = await fetch_categories()
+        except Exception as exc:
+            log.debug("拉取频道分组列表失败，回退频道列表匹配: %s", exc)
+    for channel in list(categories or []) + list(fallback_channels or []):
+        if (
+            getattr(channel, "name", None) == scoped_category_name
+            and region_scope.is_reusable_region_channel(channel)
+        ):
+            return channel
+    return None
+
+
+async def _create_regear_center_channels(guild) -> tuple[object, dict[str, object]]:
+    channels_existing = await guild.fetch_channel_list()
+    category = await _find_region_category(guild, REGEAR_CENTER_CATEGORY_NAME, channels_existing)
+    if category is None:
+        category = await guild.create_channel_category(region_scope.scoped_name(REGEAR_CENTER_CATEGORY_NAME))
+    channels = {}
+    for field, name in REGEAR_CENTER_CHANNELS.items():
+        scoped = region_scope.scoped_name(name)
+        existing = next(
+            (
+                channel
+                for channel in channels_existing
+                if getattr(channel, "name", None) == scoped
+                and region_scope.is_reusable_region_channel(channel)
+            ),
+            None,
+        )
+        channels[field] = existing or await guild.create_text_channel(scoped, category)
+    return category, channels
+
+
+async def _create_operations_center(guild) -> tuple[object, dict[str, object]]:
+    channels_existing = await guild.fetch_channel_list()
+    category = await _find_region_category(guild, OPERATIONS_CENTER_CATEGORY_NAME, channels_existing)
+    if category is None:
+        category = await guild.create_channel_category(region_scope.scoped_name(OPERATIONS_CENTER_CATEGORY_NAME))
+
+    channels = {}
+    for field, name in OPERATIONS_CENTER_CHANNELS.items():
+        scoped = region_scope.scoped_name(name)
+        existing = next(
+            (
+                channel
+                for channel in channels_existing
+                if getattr(channel, "name", None) == scoped
+                and region_scope.is_reusable_region_channel(channel)
+            ),
+            None,
+        )
+        channels[field] = existing or await guild.create_text_channel(scoped, category)
+    return category, channels
+
+
+async def _ensure_region_scoped_channel_layout(bot: Bot, guild) -> None:
+    await _create_operations_center(guild)
+    await _create_regear_center_channels(guild)
+
+
+def _extract_joined_guild_id(event) -> str | None:
+    candidates = []
+    for source in (
+        getattr(event, "body", None),
+        getattr(event, "extra", None),
+        getattr(event, "data", None),
+    ):
+        if isinstance(source, dict):
+            candidates.extend(
+                [
+                    source.get("guild_id"),
+                    source.get("guildId"),
+                    source.get("target_id"),
+                    source.get("id"),
+                ]
+            )
+            guild = source.get("guild")
+            if isinstance(guild, dict):
+                candidates.extend([guild.get("id"), guild.get("guild_id")])
+    candidates.extend(
+        [
+            getattr(event, "guild_id", None),
+            getattr(event, "target_id", None),
+            getattr(event, "id", None),
+        ]
+    )
+    for candidate in candidates:
+        text = str(candidate or "").strip()
+        if text:
+            return text
+    return None
 
 
 SETTING_USAGE = (
     "用法：\n"
     "`/设置 会员身份组 @身份组`\n"
     "`/设置 审批频道 #频道`\n"
+    "`/设置 运营初始化频道`\n"
     "`/设置 补装初始化频道`\n"
     "`/设置 补装申请频道 #频道`\n"
     "`/设置 补装审核频道 #频道`\n"
@@ -215,8 +331,24 @@ SETTING_USAGE = (
 
 
 def register(bot: Bot, gi: GameInfo) -> None:
+    @bot.on_event(EventTypes.SELF_JOINED_GUILD)
+    async def on_self_joined_guild(b: Bot, event):
+        guild_id = _extract_joined_guild_id(event)
+        if not guild_id:
+            log.warning("收到 bot 入服事件但无法解析 guild_id: %s", getattr(event, "body", None))
+            return
+        try:
+            guild = await b.client.fetch_guild(guild_id)
+            await _ensure_region_scoped_channel_layout(b, guild)
+        except Exception as exc:
+            log.warning("bot 入服后初始化区服频道失败 guild=%s: %s", guild_id, exc)
+            return
+        log.info("bot 入服后已创建/复用区服频道布局 guild=%s region=%s", guild_id, region_scope.region_code())
+
     @bot.command(name="绑定公会")
     async def bind_guild_cmd(msg: Message, *args):
+        if not region_scope.should_process_message(msg, allow_bootstrap=True):
+            return
         name = " ".join(args).strip()
         if not name:
             await msg.reply("用法：/绑定公会 <公会名>")
@@ -240,6 +372,8 @@ def register(bot: Bot, gi: GameInfo) -> None:
 
     @bot.command(name="解绑公会")
     async def unbind_guild_cmd(msg: Message, *args):
+        if not region_scope.should_process_message(msg):
+            return
         if not await perms.is_guild_admin(msg.ctx.guild, msg.author):
             await msg.reply("⛔ 只有管理员可以解绑公会。")
             return
@@ -248,6 +382,11 @@ def register(bot: Bot, gi: GameInfo) -> None:
 
     @bot.command(name="设置")
     async def setting_cmd(msg: Message, *args):
+        key = args[0] if args else ""
+        if not region_scope.should_process_message(
+            msg, allow_bootstrap=key in ("运营初始化频道", "补装初始化频道")
+        ):
+            return
         if not await perms.is_guild_admin(msg.ctx.guild, msg.author):
             await msg.reply("⛔ 只有管理员可以修改设置。")
             return
@@ -259,7 +398,6 @@ def register(bot: Bot, gi: GameInfo) -> None:
             await msg.reply(SETTING_USAGE)
             return
 
-        key = args[0]
         value = " ".join(args[1:]).strip()
 
         if key == "会员身份组":
@@ -326,6 +464,23 @@ def register(bot: Bot, gi: GameInfo) -> None:
             repo.set_setting(kgid, "member_change_channel_id", cid)
             await msg.reply(f"✅ 成员变动频道已设为 (chn){cid}(chn)")
 
+        elif key == "运营初始化频道":
+            try:
+                category, channels = await _create_operations_center(msg.ctx.guild)
+            except Exception as exc:
+                log.warning("初始化运营中心失败: %s", exc)
+                await msg.reply("⚠️ 创建运营中心失败，请检查 bot 是否有管理频道/管理权限。")
+                return
+            for field, channel in channels.items():
+                repo.set_setting(kgid, field, str(channel.id))
+            lines = [
+                f"✅ 已创建/复用 `{region_scope.scoped_name(OPERATIONS_CENTER_CATEGORY_NAME)}`，并写入运营频道配置。",
+                f"· 分组：`{getattr(category, 'id', '-')}`",
+            ]
+            for field, name in OPERATIONS_CENTER_CHANNELS.items():
+                lines.append(f"· {region_scope.scoped_name(name)}：(chn){channels[field].id}(chn)")
+            await msg.reply("\n".join(lines))
+
         elif key == "补装初始化频道":
             binding = repo.get_guild_binding(kgid) or {}
             try:
@@ -337,11 +492,11 @@ def register(bot: Bot, gi: GameInfo) -> None:
             for field, channel in channels.items():
                 repo.set_setting(kgid, field, str(channel.id))
             lines = [
-                f"✅ 已新建 `{REGEAR_CENTER_CATEGORY_NAME}`，并写入补装频道配置。",
+                f"✅ 已创建/复用 `{region_scope.scoped_name(REGEAR_CENTER_CATEGORY_NAME)}`，并写入补装频道配置。",
                 f"· 分组：`{getattr(category, 'id', '-')}`",
             ]
             for field, name in REGEAR_CENTER_CHANNELS.items():
-                lines.append(f"· {name}：(chn){channels[field].id}(chn)")
+                lines.append(f"· {region_scope.scoped_name(name)}：(chn){channels[field].id}(chn)")
             if warnings:
                 lines.append("⚠️ " + "；".join(dict.fromkeys(warnings)))
             await msg.reply("\n".join(lines))
@@ -418,6 +573,8 @@ def register(bot: Bot, gi: GameInfo) -> None:
             channel = await b.client.fetch_public_channel(channel_id)
         except Exception as exc:
             log.warning("拉取频道失败: %s", exc)
+            return
+        if not region_scope.channel_allowed(channel, allow_bootstrap=True):
             return
 
         try:

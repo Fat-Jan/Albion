@@ -8,7 +8,7 @@ import logging
 
 from khl import Bot, EventTypes, Message
 
-from bot import perms
+from bot import perms, region_scope
 from bot.albion.gameinfo import GameInfo
 from bot.cards.register_cards import approval_card, binding_result_card
 from bot.commands.kook_message import update_public_message
@@ -70,16 +70,36 @@ def _bind_notify_channel(guild_binding: dict | None) -> str | None:
     )
 
 
+async def _fetch_configured_channel(b: Bot, guild_binding: dict | None, channel_id: str, fields: tuple[str, ...]):
+    channel = await b.client.fetch_public_channel(channel_id)
+    if not region_scope.configured_channel_matches_region(guild_binding, channel_id, fields, channel):
+        log.warning(
+            "跳过非本区绑定配置频道 channel=%s fields=%s name=%s",
+            channel_id,
+            ",".join(fields),
+            getattr(channel, "name", None),
+        )
+        return None
+    return channel
+
+
 async def _send_bind_notice(b: Bot, guild_binding: dict | None, fallback_channel, payload) -> None:
     channel_id = _bind_notify_channel(guild_binding)
     if not channel_id:
         await fallback_channel.send(payload)
         return
     try:
-        channel = await b.client.fetch_public_channel(channel_id)
+        channel = await _fetch_configured_channel(
+            b,
+            guild_binding,
+            channel_id,
+            ("member_change_channel_id", "approval_channel_id"),
+        )
     except Exception as exc:
         log.warning("拉取绑定通知频道失败 channel=%s: %s", channel_id, exc)
         await fallback_channel.send(payload)
+        return
+    if not channel:
         return
     await channel.send(payload)
 
@@ -133,6 +153,8 @@ async def _handle_bind_review(b: Bot, act: str, val: dict, guild_id: str, clicke
 def register(bot: Bot, gi: GameInfo) -> None:
     @bot.command(name="绑定")
     async def bind_cmd(msg: Message, *args):
+        if not region_scope.should_process_message(msg):
+            return
         name, custom_nickname = _parse_bind_args(args)
         if not name:
             await msg.reply("用法：/绑定 <游戏角色名> [自定义昵称]，例如 /绑定 BEISHENGS 北笙")
@@ -204,7 +226,14 @@ def register(bot: Bot, gi: GameInfo) -> None:
             return
         pending_id = repo.create_pending(kgid, kuid, player["Id"], player["Name"], custom_nickname)
         try:
-            channel = await bot.client.fetch_public_channel(binding["approval_channel_id"])
+            channel = await _fetch_configured_channel(
+                bot,
+                binding,
+                binding["approval_channel_id"],
+                ("approval_channel_id",),
+            )
+            if not channel:
+                raise ValueError("approval channel is outside current region scope")
             sent = await channel.send(approval_card(pending_id, kuid, player, custom_nickname))
             msg_id = sent.get("msg_id") if isinstance(sent, dict) else None
             if msg_id:
@@ -218,6 +247,8 @@ def register(bot: Bot, gi: GameInfo) -> None:
 
     @bot.command(name="解绑")
     async def unbind_cmd(msg: Message, *args):
+        if not region_scope.should_process_message(msg):
+            return
         kgid = msg.ctx.guild.id
         kuid = msg.author.id
         removed = repo.delete_player_binding(kuid, kgid)
@@ -251,5 +282,13 @@ def register(bot: Bot, gi: GameInfo) -> None:
             channel = await b.client.fetch_public_channel(channel_id)
         except Exception as exc:
             log.warning("拉取审批频道失败: %s", exc)
+            return
+        binding = repo.get_guild_binding(guild_id)
+        if not (
+            region_scope.channel_matches_region(channel)
+            or region_scope.configured_channel_matches_region(
+                binding, channel_id, ("approval_channel_id",), channel
+            )
+        ):
             return
         await _handle_bind_review(b, act, val, guild_id, clicker, channel)

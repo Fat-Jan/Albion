@@ -8,16 +8,16 @@
 - `README.md` / `使用说明书.md` 作为通用欧服版本说明维护；具体公会、实例、真实频道 ID 和活测证据继续留在 `STATUS.md` / 本文件，不回灌到通用 README。
 - 当前进度：**M0-M6 已实现，欧服线上部署未确认**。欧服本地代码、配置默认值和文档默认标识已适配；历史“线上/部署”记录多来自亚服项目迁移残留，不要直接当作欧服验收证据。当前项目版本 `1.0`（`bot/version.py`，`/ping` 返回 `pong v1.0`）。AI 辅助已扩展为高频只读露出：`/助手`、`/战报 [日期]`、`/补装解释`、补装审核卡「AI 审核提示」、自动 ZvZ 战报卡「AI 摘要」；`/战报 6-15` 等日期参数按北京时间目标日 14:30 到次日 05:00 过滤。AI 仍不得审批、发组、撤组、改金额或标记发放。M7 出勤后置，等真实用户反馈明确考勤口径后再做。
 - 项目已采用轻量 harness：后续接手先读 `AGENTS.md` 和 `STATUS.md`；离线门禁统一跑 `scripts/check.sh`。离线通过不等于 KOOK 真实交互已活测，涉及线上/真实 bot 的结论必须补充活测证据。
-- 当前本地 SQLite 绑定：KOOK guild `5204615975879655` -> Albion guild `Top Squad` (`7tmt12sOTkGgcqZL3jSy7Q`)，战报频道 `3758107198191605`，库内本会最小参战人数仍为 `5`，但当前代码自动战报最低按 20 人生效；绑定一律按运行时 guild_id 走，代码不写死服务器。
+- 当前本地 SQLite 绑定：旧 KOOK guild `5204615975879655` -> Albion guild `Top Squad` (`7tmt12sOTkGgcqZL3jSy7Q`)，战报频道 `3758107198191605`，库内本会最小参战人数仍为 `5`，但当前代码自动战报最低按 20 人生效；新加入的 KOOK 服务器 `fumass` 已绑定 guild `4676167053713576` -> `Top Squad`，当前必须使用 `eu-` 前缀频道：`eu-✅绑定审批` `6593832141020317`、`eu-📢成员变动` `3626370873673494`、`eu-⚔️击杀播报` `8415323442916410`、`eu-💀阵亡播报` `3162690807846766`、`eu-🗺️战报推送` `7532177792027984`、`eu-📥补装申请` `1796790216225633`、`eu-🔍补装审核` `6148000249978208`、`eu-💰补装发放` `5305586332660592`、`eu-📣补装通知` `9949355172393396`；旧无前缀补装四频道已确认与亚服 Mika 相同，2026-06-18 起不再作为欧服配置使用。2026-06-18 已删除后续机器人/测试误建残留：`🇪🇺欧服机器人` 分组及其无前缀 9 子频道、`审批测试` 和两个无前缀 `🛡️补装中心` 分组；经用户明确点名授权，已额外删除此前承载过亚服播报、但已被 `asia-` 前缀专用频道替代的 `📯丨战报推送` `8139656704033247`、`击杀播报` `5938739897296829`、`死亡播报` `4201481428779754`，并清空亚服本地库残留 `broadcast_channel_id=5938739897296829`。用户边界：2026 年 6 月前就存在或有记录/消息历史的频道默认不要乱删除，除非用户明确点名授权；KOOK API 无创建时间且证据不硬时默认保留。绑定一律按运行时 guild_id 走，代码不写死服务器。
 - 测试参考角色：armskey/muaowo 可作为非本会角色；需要本会成员就从欧服 `/guilds/7tmt12sOTkGgcqZL3jSy7Q/members` 挑 `Top Squad` 活跃成员。
 - 实际运行环境是 **Python 3.13.12**（计划写 3.11+），khl.py 0.3.17 / httpx 0.28.1 / python-dotenv，3.13 兼容无碍；venv 在 `.venv/`。
 - 技术栈定死：Python + khl.py（WebSocket）+ httpx + SQLite；数据源默认走欧服三件套（gameinfo-ams / europe AODP / albionbb-eu），AlbionBB 网页链接、官方击杀板 server、显示时区和自动战报窗口已配置化，欧服默认仍是 europe.albionbb.com / live_ams / 北京时间窗口，别混区。
 - 所有设计决议已收口进 `KOOK机器人实现计划.md` 第十一节，无遗留待定项。
 - 项目 GitHub 仓库地址：`https://github.com/Fat-Jan/Albion.git`，本地 Git remote `origin` 已指向该地址。
-- 本地双版本维护约定：欧服目录 `/Users/arm/Desktop/vscode/Albion-EU-kook` 固定使用 `deploy/eu` 分支；亚服目录 `/Users/arm/Desktop/vscode/Albion-ASIA-kook` 固定使用 `deploy/asia` 分支；`main` 只当共享上游主线，不直接作为某个服务器实例长期开发分支。双目录 VS Code 入口在 `/Users/arm/Desktop/vscode/Albion-ASIA-EU-kook.code-workspace`。
+- 仓库与分支真相：远端仓库为 `https://github.com/Fat-Jan/Albion.git`；欧服目录 `/Users/arm/Desktop/vscode/Albion-EU-kook` 固定使用 `deploy/eu` 分支；亚服目录 `/Users/arm/Desktop/vscode/Albion-ASIA-kook` 固定使用 `deploy/asia` 分支；`main` 只当共享上游主线，不直接作为某个服务器实例长期开发分支。双目录 VS Code 入口在 `/Users/arm/Desktop/vscode/Albion-ASIA-EU-kook.code-workspace`。
 - 功能同步规则：共享功能修复用独立提交双向 cherry-pick；不要整分支互 merge。整分支 merge 会把区服接口默认值、`.env.example`、公会名、运行证据和部署记录混进另一实例。
 - 远端注意：阿里云新加坡 `aliyun_singapore:/opt/albion-kook` 是亚服旧服务/旧文档残留的可能性很高。2026-06-16 只读复查：该目录不是 git 工作树，`.env` 仍覆盖亚服三件套（gameinfo-sgp / AODP east / albionbb asia），`albion-kook.service` active/running，PID `1208143`。不要把它默认视为欧服线上；如需部署欧服，先明确目标服务器/目录/token 边界。
-- 当前数据库概况（2026-06-16 复查）：`guild_binding=1`、`player_binding=0`、`pending_approval=0`、`regear_request=0`、`regear_reviewer_request=0`、`market_price_reference=10595`，`pragma integrity_check=ok`。本机当前 `guild_binding.battle_report_channel_id=3758107198191605`。旧补装测试记录清理前已备份到 `data/backups/`；绑定活测的测试用户本地绑定和待审批行已删除。
+- 当前数据库概况（2026-06-18 复查）：`guild_binding=2`（旧 guild `5204615975879655` + fumass `4676167053713576`）、`player_binding=1`、`pending_approval=1`、`regear_request=2`、`regear_reviewer_request=0`、`market_price_reference=10595`，`pragma integrity_check=ok`。旧 guild 当前 `guild_binding.battle_report_channel_id=3758107198191605`；fumass 当前 `battle_report_channel_id=7532177792027984`。2026-06-18 交叉比对欧服/亚服 `4676167053713576` 的运营+补装 9 个频道字段，`shared_count=0`；本地欧服 bot PID `77524`，token 诊断 `bot_id=49050 token_fp=2262e4d75d7b token_source=env_file`。
 
 ## 已收口的关键决议（2026-06-14）
 
@@ -47,7 +47,7 @@
 - **物品翻译坑**：派系坐骑等特殊物品 UniqueName 自带 `@N`（如 `T5_MOUNT_COUGAR_KEEPER@1`=迅爪），基名查不到 → `items.localized` 已加整串直查兜底。`items.tier_enchant` 从 id 解析 `T层级.附魔` 标注。
 - 时间口径：官方 API 全 UTC；卡片用 `query_cards.beijing()` 加「北京 MM-DD HH:MM」注释（UTC+8）。AI 事实包不提供裸时间，统一给服务器/API 时间 UTC + 北京时间 UTC+8；数据库时间标为数据库/服务器时间 UTC。
 - 死亡详情：`/补装` 列表每条带 [详情]（出装备明细+估值+官方击杀板链接 `albiononline.com/killboard/kill/{EventId}?server=live_ams`）和 [选这个补装]。
-- 补装流程：已有 SQLite `regear_request` 管理申请。`pending`=待审批，审批通过前会重新按当前估值刷新金额并落 `approved`=待发放；线下发银/物资后点 [标记已发放] 落 `paid`（独立 `paid_by/paid_at`，不覆盖 `reviewed_by/reviewed_at`）。补装审核已和 KOOK 管理员权限解耦：管理员用 `/设置 补装审核身份组 @身份组` 配置后，成员可 `/补装审核` 申请该身份，管理员审批通过会自动发组；之后持该身份组的人可 `/补装 待处理`、`/补装 待发放`、`/补装 列表` 并审批/拒绝/标记发放。补装中心已改为四频道：`regear_apply_channel_id`（成员 `/补装`、`/补装状态`）、`regear_review_channel_id`（审核卡）、`regear_payout_channel_id`（待发放卡）、`regear_notify_channel_id`（完成通知，只 @ 成员不公开金额/事件）。推荐 `/设置 补装初始化频道` 新建 `🛡️补装中心`；旧 `regear_channel_id`/`/设置 补装频道` 仅作兼容兜底，不复用旧频道。
+- 补装流程：已有 SQLite `regear_request` 管理申请。`pending`=待审批，审批通过前会重新按当前估值刷新金额并落 `approved`=待发放；线下发银/物资后点 [标记已发放] 落 `paid`（独立 `paid_by/paid_at`，不覆盖 `reviewed_by/reviewed_at`）。补装审核已和 KOOK 管理员权限解耦：管理员用 `/设置 补装审核身份组 @身份组` 配置后，成员可 `/补装审核` 申请该身份，管理员审批通过会自动发组；之后持该身份组的人可 `/补装 待处理`、`/补装 待发放`、`/补装 列表` 并审批/拒绝/标记发放。补装中心已改为四频道：`regear_apply_channel_id`（成员 `/补装`、`/补装状态`）、`regear_review_channel_id`（审核卡）、`regear_payout_channel_id`（待发放卡）、`regear_notify_channel_id`（完成通知，只 @ 成员不公开金额/事件）。推荐 `/设置 补装初始化频道` 新建或复用当前区服前缀补装中心（欧服为 `eu-🛡️补装中心`）；旧 `regear_channel_id`/`/设置 补装频道` 仅作兼容兜底，不复用旧频道。
 - **武器/副手低价参考库**：SQLite `market_price_reference` 已落地，范围是 T4-T8 的 `MAIN_`/战斗类 `2H_`/`OFF_`，包含未附魔和 `@1~@4`，按品质 1-5 存各城 `sell_price_min` 的低价参考（剔除高离群）。补装/估值仍优先 history 与实时 `/prices`，实时拿不到时才用库内参考价兜底。手动刷新：`.venv/bin/python -m scripts.refresh_price_reference`；机器人运行后每 3 天自动刷新一次。2026-06-16 欧服真实刷新：使用 `AODP_BASE=https://europe.albion-online-data.com`，拉取 3875 个物品 id、116250 条 API 行，写入 10595 条 `(item_id, quality)` 参考价，source=`aodp_prices_sell_min`。
 - **死亡事件地点官方不给（已定论）**：复验全局 51 条 + 历史 357 条，`KillArea` 全 `OPEN_WORLD`，`Location`/`Category`/`GvGMatch` 全 `null`，16 个顶层字段无其它地理字段。SBI 故意不对公开 API 暴露死亡地图（论坛多年请求未果）；第三方站（同源数据 + CF 拦截）与客户端 Photon 抓包（服务器 bot 不在现场）均不可行 → 地点显示无意义。播报卡、补装卡和 `/估值` 已去掉地点展示，只保留时间、IP 和规模。
 - **玩家 kills/deaths 端点锁最近 10 条**，`limit`/`offset` 无效，抓不到更多历史。
@@ -83,12 +83,12 @@
 
 ## 待复测清单（用户回来测）
 
-当前本地库已绑 KOOK guild `5204615975879655` -> Albion guild `Top Squad` (`7tmt12sOTkGgcqZL3jSy7Q`)，战报频道 `3758107198191605`，库内本会最小参战人数 `5` 但自动战报最低按 20 人生效：
+当前主要复测面是 fumass KOOK guild `4676167053713576` -> Albion guild `Top Squad` (`7tmt12sOTkGgcqZL3jSy7Q`)，必须在 `eu-` 前缀频道里测；当前审批频道为 `eu-✅绑定审批` `6593832141020317`。旧 KOOK guild `5204615975879655` 仅保留为历史本地绑定记录，战报频道 `3758107198191605`，库内本会最小参战人数 `5` 但自动战报最低按 20 人生效：
 1. **M3 /绑定**：核心链路曾用 `BEISHENGS 北笙` 活测通过；后续欧服复测应发 `/绑定 <Top Squad成员名> [自定义昵称]` 复测普通用户体验。再测不在 Top Squad 的角色（如 armskey）应被拒。`/解绑` 撤组。
    - 前置：bot 身份组要**高于**「老兵」且有「管理身份组」「修改他人昵称」权限，否则发组/改名会失败（有告警提示）。
 2. **M4**：`/战绩 <名>`、`/估值 <名>`、`/榜单 pvp`、`/榜单 pve`、`/物价 老手级双剑`、`/金价`、`/战役`。
-3. **M5 /补装**：先 `/设置 补装审核身份组 @身份组`，再 `/设置 补装初始化频道` 新建补装中心四频道（或手动 `/设置 补装申请频道|补装审核频道|补装发放频道|补装通知频道 #频道`）→ 普通成员 `/补装审核` → 审批频道出身份申请卡 → 管理员点[通过] 自动发组 → 该成员可测 `/补装 待处理`、`/补装 待发放`、`/补装 列表` 与补装卡 [通过]/[拒绝]/[标记已发放]。补装申请侧：/绑定 自己 → 在补装申请频道 `/补装` → 点 [详情] 看装备明细+击杀板链接，或 [选这个补装] → 补装审核频道出审核卡 → [通过] → 补装发放频道出「待发放」卡 → 发放后点 [标记已发放] → 补装通知频道只发完成 @；成员可 `/补装状态` 查进度。
-4. **M6 播报/成员变动**：`/设置 播报频道 <频道>`、`/设置 成员变动频道 <频道>` → 普通时段等 4 分钟、20:00-00:30 等 90 秒，有 Top Squad 击杀/阵亡会推卡片（大额金色高亮）。退会复查是每日 4 点 cron，通知发成员变动频道。
+3. **M5 /补装**：先 `/设置 补装审核身份组 @身份组`，再 `/设置 补装初始化频道` 新建或复用 `eu-🛡️补装中心` 四频道（或手动绑定 `#eu-📥补装申请`、`#eu-🔍补装审核`、`#eu-💰补装发放`、`#eu-📣补装通知`）→ 普通成员 `/补装审核` → `eu-✅绑定审批` 出身份申请卡 → 管理员点[通过] 自动发组 → 该成员可测 `/补装 待处理`、`/补装 待发放`、`/补装 列表` 与补装卡 [通过]/[拒绝]/[标记已发放]。补装申请侧：/绑定 自己 → 在 `eu-📥补装申请` 频道 `/补装` → 点 [详情] 看装备明细+击杀板链接，或 [选这个补装] → `eu-🔍补装审核` 出审核卡 → [通过] → `eu-💰补装发放` 出「待发放」卡 → 发放后点 [标记已发放] → `eu-📣补装通知` 只发完成 @；成员可 `/补装状态` 查进度。
+4. **M6 播报/成员变动**：配置 `#eu-📢成员变动`、`#eu-⚔️击杀播报`、`#eu-💀阵亡播报`、`#eu-🗺️战报推送` 后复测；普通时段等 4 分钟、20:00-00:30 等 90 秒，有 Top Squad 击杀/阵亡会推卡片（大额金色高亮）。退会复查是每日 4 点 cron，通知发成员变动频道。
 
 ## 下一步
 

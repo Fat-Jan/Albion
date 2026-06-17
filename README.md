@@ -4,14 +4,23 @@
 
 GitHub 仓库：<https://github.com/Fat-Jan/Albion.git>
 
+## 仓库与分支
+
+- 本 README 对应欧服实例分支 `deploy/eu`，本地目录固定为 `/Users/arm/Desktop/vscode/Albion-EU-kook`。
+- 同一远端仓库还维护亚服实例分支 `deploy/asia`，本地目录固定为 `/Users/arm/Desktop/vscode/Albion-ASIA-kook`。
+- `main` 只作为共享上游主线，不直接作为欧服或亚服服务器实例的长期工作分支。
+- 共享功能修复先做成独立提交，分别在 `deploy/eu` 与 `deploy/asia` 之间 `cherry-pick`；不要整分支互 merge，避免区服默认值、`.env.example`、公会名、运行证据和部署记录串区。
+- 欧服分支必须保持 `KOOK_REGION_CODE=eu`、欧服数据源和 `eu-` 频道前缀一致；切区时需要同时切频道前缀、官方 gameinfo、AODP、AlbionBB API、AlbionBB 网页和官方击杀板 server。
+
 详细操作手册见 [使用说明书.md](使用说明书.md)。设计过程见 [KOOK 机器人实现计划.md](KOOK机器人实现计划.md)，数据源说明见 [阿尔比恩数据接口文档.md](阿尔比恩数据接口文档.md)。
 
 ## 项目状态
 
 - 当前通用版本为 `1.0`，单一来源为 `bot/version.py`；机器人在线时 `/ping` 返回 `pong v1.0`。
 - 默认面向欧服：官方战斗数据走 `gameinfo-ams`，市场数据走 AODP `europe`，ZvZ 战报走 albionbb `eu`。
+- 区服作用域由 `KOOK_REGION_CODE=eu` 和同区数据源共同决定；本实例只响应 `eu-` 前缀频道里的 `/指令` 和 `@机器人` 自然语言，其他前缀或无前缀频道会静默。
 - 一个 KOOK 服务器绑定一个 Albion 公会；公会、成员、频道、身份组、补装和战报去重状态保存在本地 SQLite。
-- 频道配置保存的是 KOOK 频道 ID，不依赖频道名称。手动改频道名通常不影响机器人；删除频道、重建频道或迁移到新服务器后，需要重新执行对应 `/设置 ...频道 #频道`。
+- 频道配置保存的是 KOOK 频道 ID，但运行时要求频道名保留当前区服前缀。删除频道、重建频道、去掉 `eu-` 前缀或迁移到新服务器后，需要重新执行对应 `/设置 ...频道 #频道` 或初始化命令。
 - 补装金额只计算穿戴装备；背包物品只在详情和总损失里展示，不计入补装。
 - 武器/副手低价参考库覆盖 T4-T8、附魔 `@1`-`@4`、品质 1-5，每 3 天自动刷新。
 - AI 默认关闭；开启后会出现在 `/战报`、`/助手`、`/补装解释`、`@机器人` 自然语言入口、补装审核卡和自动 ZvZ 战报卡，但仍只做只读摘要和解释。
@@ -26,7 +35,8 @@ GitHub 仓库：<https://github.com/Fat-Jan/Albion.git>
 - `/绑定公会 <公会名>`：管理员把当前 KOOK 服务器绑定到 Albion 公会。
 - `/设置 会员身份组 @身份组`：配置绑定通过后发放的会员身份组。
 - `/设置 审批频道 #频道`：配置绑定审批和补装审核身份申请频道。
-- `/设置 补装初始化频道`：自动新建 `🛡️补装中心` 分组和四个补装频道，并写入配置。
+- `/设置 运营初始化频道`：自动新建或复用 `eu-📡运营中心` 分组和审批、成员变动、击杀、阵亡、战报频道，并写入配置。
+- `/设置 补装初始化频道`：自动新建或复用 `eu-🛡️补装中心` 分组和四个补装频道，并写入配置。
 - `/设置 播报频道 #频道`：配置旧版统一播报频道，也作为击杀/阵亡频道未单独配置时的兜底。
 - `/设置 击杀播报频道 #频道`：配置我方击杀播报频道。
 - `/设置 阵亡播报频道 #频道`：配置我方阵亡播报频道（也兼容 `/设置 死亡播报频道 #频道`）。
@@ -39,7 +49,7 @@ GitHub 仓库：<https://github.com/Fat-Jan/Albion.git>
 
 绑定关系仍然是一人一服一条记录；自定义昵称保存在 `player_binding.custom_nickname`，审批中的值保存在 `pending_approval.custom_nickname`，不会新增一条绑定行。绑定待审批卡会显示申请号、待审批状态和目标 KOOK 昵称。审批通过或拒绝后，机器人会把结果卡发到成员变动频道；未配置时兜底审批频道。结果卡包含绑定申请号、申请人、角色、目标 KOOK 昵称和当前状态，并会尽量把原审批卡原地更新为已通过或已拒绝。
 
-频道设置写入的是 KOOK 频道 ID；只改频道名不需要重新配置，删除频道或重建频道后才需要重新 `/设置`。
+频道设置写入的是 KOOK 频道 ID；频道名必须保留 `eu-` 前缀。只改前缀后的说明文字通常不需要重新配置，删除频道、重建频道或去掉 `eu-` 前缀后才需要重新 `/设置`。
 
 ### 查询指令
 
@@ -55,7 +65,7 @@ GitHub 仓库：<https://github.com/Fat-Jan/Albion.git>
 
 ### 补装流程
 
-- `/设置 补装初始化频道`：推荐初始化方式，新建 `🛡️补装中心`、`📥补装申请`、`🔍补装审核`、`💰补装发放`、`📣补装通知`。
+- `/设置 补装初始化频道`：推荐初始化方式，新建或复用 `eu-🛡️补装中心`、`eu-📥补装申请`、`eu-🔍补装审核`、`eu-💰补装发放`、`eu-📣补装通知`。
 - `/设置 补装申请频道|补装审核频道|补装发放频道|补装通知频道 #频道`：手动绑定四个补装频道。
 - `/设置 补装频道 #频道`：旧版单频道兜底；新流程不建议继续复用旧频道。
 - `/设置 补装审核身份组 @身份组...`：配置可审批补装、标记发放的身份组。
@@ -82,11 +92,11 @@ pending（待审批） -> rejected（已拒绝）
 推荐频道结构：
 
 ```text
-补装中心
-├─ 补装申请      成员可见，可发 /补装 /补装状态
-├─ 补装审核      仅补装组/管理可见
-├─ 补装发放      仅补装组/发放组/管理可见
-└─ 补装通知      成员可见，只发完成通知
+eu-🛡️补装中心
+├─ eu-📥补装申请      成员可见，可发 /补装 /补装状态
+├─ eu-🔍补装审核      仅补装组/管理可见
+├─ eu-💰补装发放      仅补装组/发放组/管理可见
+└─ eu-📣补装通知      成员可见，只发完成通知
 ```
 
 ### 自动任务
@@ -127,6 +137,7 @@ cp .env.example .env
 
 ```dotenv
 KOOK_TOKEN=
+KOOK_REGION_CODE=eu
 GAMEINFO_BASE=https://gameinfo-ams.albiononline.com/api/gameinfo
 AODP_BASE=https://europe.albion-online-data.com
 ALBIONBB_BASE=https://api.albionbb.com/eu
@@ -149,11 +160,12 @@ AI_TIMEOUT_SEC=20
 AI_MAX_OUTPUT_TOKENS=800
 ```
 
-`KOOK_TOKEN` 是必填密钥。启用 AI 时使用 `AI_API_KEY` 或 `LONGCAT_API_KEY`，前者优先。`KOOK_BOT_MENTION_ALIASES` 用来配置 `@机器人` 自然语言入口额外可识别的显示名别名，默认留空；多个别名用英文逗号分隔。密钥不要提交到 Git。
+`KOOK_TOKEN` 是必填密钥。`KOOK_REGION_CODE` 决定频道前缀和消息响应作用域，欧服使用 `eu`。启用 AI 时使用 `AI_API_KEY` 或 `LONGCAT_API_KEY`，前者优先。`KOOK_BOT_MENTION_ALIASES` 用来配置 `@机器人` 自然语言入口额外可识别的显示名别名，默认留空；多个别名用英文逗号分隔。密钥不要提交到 Git。
 
-默认配置面向欧服。切区时需同时切官方 gameinfo、AODP、AlbionBB API、AlbionBB 网页和官方击杀板 server，避免市场、战报和链接混区。如需切回亚服：
+默认配置面向欧服。切区时需同时切 `KOOK_REGION_CODE`、官方 gameinfo、AODP、AlbionBB API、AlbionBB 网页和官方击杀板 server，避免频道、市场、战报和链接混区。如需切回亚服：
 
 ```dotenv
+KOOK_REGION_CODE=asia
 GAMEINFO_BASE=https://gameinfo-sgp.albiononline.com/api/gameinfo
 AODP_BASE=https://east.albion-online-data.com
 ALBIONBB_BASE=https://api.albionbb.com/asia

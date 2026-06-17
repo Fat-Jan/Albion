@@ -8,7 +8,7 @@ import logging
 
 from khl import Bot, EventTypes, Message
 
-from bot import perms
+from bot import perms, region_scope
 from bot.ai.context import regear_explain_context
 from bot.ai.service import AIService
 from bot.albion import valuation
@@ -105,12 +105,32 @@ def _regear_approval_channel(guild_binding: dict | None) -> str | None:
     return _regear_review_channel(guild_binding)
 
 
+async def _fetch_configured_channel(b: Bot, guild_binding: dict | None, channel_id: str, fields: tuple[str, ...]):
+    channel = await b.client.fetch_public_channel(channel_id)
+    if not region_scope.configured_channel_matches_region(guild_binding, channel_id, fields, channel):
+        log.warning(
+            "跳过非本区补装配置频道 channel=%s fields=%s name=%s",
+            channel_id,
+            ",".join(fields),
+            getattr(channel, "name", None),
+        )
+        return None
+    return channel
+
+
 async def _send_regear_notice(b: Bot, guild_binding: dict | None, payload) -> None:
     notify_channel_id = _regear_notify_channel(guild_binding)
     if not notify_channel_id:
         return
     try:
-        notify_channel = await b.client.fetch_public_channel(notify_channel_id)
+        notify_channel = await _fetch_configured_channel(
+            b,
+            guild_binding,
+            notify_channel_id,
+            ("regear_notify_channel_id", "regear_channel_id", "approval_channel_id"),
+        )
+        if not notify_channel:
+            return
         await notify_channel.send(payload)
     except Exception as exc:
         log.warning("发送补装通知失败 channel=%s: %s", notify_channel_id, exc)
@@ -126,10 +146,17 @@ async def _send_regear_reviewer_notice(b: Bot, guild_binding: dict | None, fallb
         await fallback_channel.send(payload)
         return
     try:
-        channel = await b.client.fetch_public_channel(channel_id)
+        channel = await _fetch_configured_channel(
+            b,
+            guild_binding,
+            channel_id,
+            ("member_change_channel_id", "approval_channel_id"),
+        )
     except Exception as exc:
         log.warning("拉取补装审核身份通知频道失败 channel=%s: %s", channel_id, exc)
         await fallback_channel.send(payload)
+        return
+    if not channel:
         return
     await channel.send(payload)
 
@@ -225,6 +252,8 @@ async def _can_manage_regear(guild, user, guild_binding: dict | None = None) -> 
 def register(bot: Bot, gi: GameInfo, mk: Market, ai_service: AIService | None = None) -> None:
     @bot.command(name="补装")
     async def regear_cmd(msg: Message, *args):
+        if not region_scope.should_process_message(msg):
+            return
         if args:
             if args[0] in ("状态", "进度", "我的"):
                 await _handle_status_cmd(msg)
@@ -255,10 +284,14 @@ def register(bot: Bot, gi: GameInfo, mk: Market, ai_service: AIService | None = 
 
     @bot.command(name="补装状态")
     async def regear_status_cmd(msg: Message, *args):
+        if not region_scope.should_process_message(msg):
+            return
         await _handle_status_cmd(msg)
 
     @bot.command(name="补装审核")
     async def regear_reviewer_cmd(msg: Message, *args):
+        if not region_scope.should_process_message(msg):
+            return
         kgid = msg.ctx.guild.id
         kuid = msg.author.id
         gbind = repo.get_guild_binding(kgid)
@@ -281,7 +314,14 @@ def register(bot: Bot, gi: GameInfo, mk: Market, ai_service: AIService | None = 
 
         request_id = repo.create_regear_reviewer_request(kgid, kuid)
         try:
-            approval = await bot.client.fetch_public_channel(approval_channel_id)
+            approval = await _fetch_configured_channel(
+                bot,
+                gbind,
+                approval_channel_id,
+                ("approval_channel_id", "regear_review_channel_id", "regear_channel_id"),
+            )
+            if not approval:
+                raise ValueError("approval channel is outside current region scope")
             sent = await approval.send(regear_reviewer_apply_card(request_id, kuid))
             msg_id = sent.get("msg_id") if isinstance(sent, dict) else None
             if msg_id:
@@ -319,6 +359,23 @@ def register(bot: Bot, gi: GameInfo, mk: Market, ai_service: AIService | None = 
             channel = await b.client.fetch_public_channel(channel_id)
         except Exception as exc:
             log.warning("拉取频道失败: %s", exc)
+            return
+        gbind = repo.get_guild_binding(guild_id)
+        regear_fields = (
+            "regear_apply_channel_id",
+            "regear_review_channel_id",
+            "regear_payout_channel_id",
+            "regear_notify_channel_id",
+            "regear_channel_id",
+            "approval_channel_id",
+            "member_change_channel_id",
+        )
+        if not (
+            region_scope.channel_matches_region(channel)
+            or region_scope.configured_channel_matches_region(
+                gbind, channel_id, regear_fields, channel
+            )
+        ):
             return
 
         if act == "regear_detail":
@@ -550,7 +607,14 @@ async def _handle_pick(b, gi, mk, val, guild_id, clicker, channel, ai_service: A
     }
     ai_hint = await _ai_regear_hint(ai_service, rr, ev, result)
     try:
-        review_channel = await b.client.fetch_public_channel(review_channel_id)
+        review_channel = await _fetch_configured_channel(
+            b,
+            gbind,
+            review_channel_id,
+            ("regear_review_channel_id", "regear_channel_id", "approval_channel_id"),
+        )
+        if not review_channel:
+            raise ValueError("review channel is outside current region scope")
         sent = await review_channel.send(
             regear_apply_card(
                 rid,
@@ -662,7 +726,14 @@ async def _handle_review(b, gi, mk, act, val, guild_id, clicker, channel):
         await channel.send(regear_approved_card(rr, ev, result))
         return
     try:
-        payout_channel = await b.client.fetch_public_channel(payout_channel_id)
+        payout_channel = await _fetch_configured_channel(
+            b,
+            gbind,
+            payout_channel_id,
+            ("regear_payout_channel_id", "regear_channel_id", "approval_channel_id"),
+        )
+        if not payout_channel:
+            raise ValueError("payout channel is outside current region scope")
         sent = await payout_channel.send(regear_approved_card(rr, ev, result))
         msg_id = sent.get("msg_id") if isinstance(sent, dict) else None
         if msg_id:

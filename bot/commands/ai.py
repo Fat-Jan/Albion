@@ -9,7 +9,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from khl import Bot, Message
 
-from bot import config
+from bot import config, region_scope
 from bot.ai.context import regear_explain_context
 from bot.ai.router import AIRouter, _looks_mutating
 from bot.ai.service import AIService
@@ -213,15 +213,21 @@ def register(bot: Bot, ai_service: AIService, gi: GameInfo, mk: Market) -> None:
 
     @bot.command(name="助手")
     async def assistant_cmd(msg: Message, *args):
+        if not region_scope.should_process_message(msg):
+            return
         question = " ".join(args).strip()
         await _reply_assistant(msg, router, question)
 
     @bot.command(name="战报")
     async def battle_report_cmd(msg: Message, *args):
+        if not region_scope.should_process_message(msg):
+            return
         await _reply_battle_report(msg, ai_service, gi, args)
 
     @bot.command(name="补装解释")
     async def regear_explain_cmd(msg: Message, *args):
+        if not region_scope.should_process_message(msg):
+            return
         await _reply_regear_explain(msg, ai_service, gi, mk, args)
 
     @bot.on_message()
@@ -234,6 +240,8 @@ def register(bot: Bot, ai_service: AIService, gi: GameInfo, mk: Market) -> None:
         if str(author_id) == bot_id:
             return
         if not _message_mentions_bot(msg, bot_id):
+            return
+        if not region_scope.should_process_message(msg):
             return
         question = _strip_bot_mention(msg.content, bot_id)
         intent = _parse_mention_intent(question)
