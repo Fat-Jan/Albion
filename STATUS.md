@@ -2,13 +2,13 @@
 
 ## Current
 
-- M0-M6 已实现；欧服本地代码、配置默认值和文档默认标识已完成适配，欧服线上部署状态未确认。
+- M0-M6 已实现；欧服本地代码、配置默认值和文档默认标识已完成适配，新加坡服务器已按双区服隔离方式上线 `albion-kook-eu.service`。
 - 仓库与分支真相：远端仓库为 `https://github.com/Fat-Jan/Albion.git`；`/Users/arm/Desktop/vscode/Albion-EU-kook` 固定使用 `deploy/eu` 分支维护欧服，`/Users/arm/Desktop/vscode/Albion-ASIA-kook` 固定使用 `deploy/asia` 分支维护亚服；`main` 只当共享上游主线，不直接作为某个服务器实例的长期工作分支。
 - 分支同步规则：共享功能修复先做成独立提交，再 cherry-pick 到 `deploy/eu` 和 `deploy/asia`；不要把 `deploy/eu` 整体 merge 到 `deploy/asia`，也不要反向整体 merge，因为接口默认值、`.env.example`、运行证据、公会名和部署记录必须各自保留。
 - 已与亚服分支同步通用区服配置化能力：AlbionBB 网页链接、官方击杀板 server、显示时区和自动战报窗口均可通过环境变量调整；欧服默认值继续保持 `gameinfo-ams`、AODP `europe`、albionbb `eu/europe`、`live_ams` 和北京时间窗口。
 - 当前版本：`1.0`，来源 `bot/version.py`。
 - AI 辅助首发、只读查询增强、`@机器人` 自然语言只读入口和高频卡片露出已实现；AI 现在会出现在补装审核卡和自动 ZvZ 战报卡，但不参与审批、发组、撤组、改金额或发放标记。
-- ZvZ 战报聚合/卡片、AI 摘要、战报推送频道、最小本会参战人数阈值、持久去重表和 `auto.py` 定时推送代码路径已接入；欧服线上真实自动窗口待单独部署/确认后验证。
+- ZvZ 战报聚合/卡片、AI 摘要、战报推送频道、最小本会参战人数阈值、持久去重表和 `auto.py` 定时推送代码路径已接入；欧服线上 systemd 已启动，真实自动命中效果继续观察。
 - M7 出勤快照后置，等待真实用户反馈考勤口径。
 
 ## Harness
@@ -21,7 +21,7 @@
 
 ## Next
 
-1. 如需部署欧服实例，先明确目标服务器/目录/token 边界；不要把 `/opt/albion-kook` 的亚服旧服务默认当作欧服线上。
+1. 日常升级时保持新加坡服务器双实例边界：欧服只更新 `/opt/albion-kook-eu` + `albion-kook-eu.service`，亚服只更新 `/opt/albion-kook-asia` + `albion-kook-asia.service`；不要恢复旧 `/opt/albion-kook` 单服务。
 2. 新功能同步流程：在当前要开发的实例分支完成并通过 `scripts/check.sh` 后，用 `git cherry-pick <功能提交>` 同步到另一实例分支；同步后复查 `bot/config.py`、`.env.example`、README/使用说明/STATUS/notepad 的区服默认值没有被带错。
 3. 欧服部署后观察 systemd 自动窗口：确认真实 AlbionBB 候选战役、北京时间窗口和线上去重日志。
 4. 等真实用户反馈后再决定 M7 出勤口径。
@@ -29,6 +29,9 @@
 
 ## Verification
 
+- 2026-06-18：按用户确认边界替换新加坡服务器旧 bot。先停止本机欧服/亚服 bot 进程，避免同一 `KOOK_TOKEN` 本地和线上双开；随后在 `aliyun_singapore` 将旧 `albion-kook.service`、`/opt/albion-kook` 和 `/var/log/albion-kook` 归档到 `/root/albion-kook-legacy-20260618-022847` 后移除运行路径。新部署两套独立实例：`/opt/albion-kook-eu` checkout `deploy/eu` `b79667c`，`/opt/albion-kook-asia` checkout `deploy/asia` `fcd19d6`；分别上传本地最新 `.env`、`data/bot.db`、`data/items_zh.json`，并在远端 `.env` 显式写入 `KOOK_REGION_CODE`、三类数据源、AlbionBB 网页和官方击杀板 server。脱敏复查：欧服 `token_fp=2262e4d75d7b`、`bot_id=49050`、`gameinfo-ams/europe/eu/live_ams`；亚服 `token_fp=45a5a99e7b1b`、`bot_id=49025`、`gameinfo-sgp/east/asia/live_sgp`。远端双库 `pragma integrity_check=ok`，`scripts/check.sh` 双实例通过。已创建并启用 `albion-kook-eu.service`、`albion-kook-asia.service`，状态均 `active`/`enabled`，进程分别为 `/opt/albion-kook-eu/.venv/bin/python -m bot.main` 与 `/opt/albion-kook-asia/.venv/bin/python -m bot.main`；启动日志显示 KOOK WebSocket `[ init ] launched`，EU 轮询访问 `gameinfo-ams`，ASIA 轮询访问 `gameinfo-sgp`。运行 `scripts.ensure_region_channels --guild-id 4676167053713576 --write-db` 复查 KOOK 真实频道：欧服命中 `eu-` 两个分组和 9 个频道，亚服命中 `asia-` 两个分组和 9 个频道，旧 `/opt/albion-kook` 和旧单元不存在。
+- 2026-06-18：只读 SSH 复查阿里云新加坡 `aliyun_singapore` 的历史 bot 部署情况，未启动、未重启、未部署、未修改 `.env` 或数据库。服务器只发现一个相关 systemd 单元 `albion-kook.service`，`enabled` 但当前 `inactive (dead)`，自 `2026-06-17 13:31:36 CST` 起停止；`ps` 未发现真实 `python -m bot.main` 进程。该单元指向 `/opt/albion-kook`，全盘只找到这一套 bot 目录，且该目录不是 git 工作树，文件时间主要停在 2026-06-16 前。远端代码仍是旧亚服口径：无 `bot/region_scope.py`，默认 `GAMEINFO_BASE=gameinfo-sgp`、`AODP_BASE=east`、`ALBIONBB_BASE=asia`，`.env` 中 `KOOK_REGION_CODE` 未设置，`ALBIONBB_WEB_BASE`/`KILLBOARD_SERVER` 未设置；脱敏诊断 `KOOK_TOKEN` 存在且 `fp=9ba856dfbbcb`，`LONGCAT_API_KEY` 存在且 `fp=e7cd19b0faea`。远端 SQLite `pragma integrity_check=ok`，但只有一个绑定：KOOK guild `4676167053713576` -> Albion guild `Mika` (`KVO3_vrITECLAIRl1juHSg`)，频道仍指向旧无前缀/亚服残留：审批 `4503321752460202`、播报/击杀 `5938739897296829`、阵亡 `4201481428779754`、补装四频道 `2623993729377265`/`6644868985908441`/`5879756834033215`/`2698640452123082`。日志显示停服前仍访问 `gameinfo-sgp`，并出现 KOOK `401 系统检测到您的登录环境异常`。结论：新加坡服务器当前没有正在运行的两个 bot，也没有最新 `deploy/eu` 或 `deploy/asia` 双区服隔离部署；只有一个已停止的亚服旧服务残留，不应直接启动作为当前线上。
+- 2026-06-18：追加深扫同一台服务器是否存在欧服 bot：`systemctl list-units` 只命中 `albion-kook.service`，根分区 `find / -xdev` 只发现 `/opt/albion-kook`、该 service 和 `/var/log/albion-kook`，`docker ps -a` 无相关容器，root/albion crontab 与系统 cron 无相关任务，tmux/screen 无会话，PM2 进程列表为空。`/opt/albion-kook` 当前库和 `data/backups/bot-before-bind-migration-20260615_204315.db` 都只有 `Mika` 绑定；日志中仅出现过一次 `/绑定公会 Top Squad`，但请求仍打到 `gameinfo-sgp`，属于旧亚服服务内的一次操作痕迹，不是独立欧服实例。本地当前欧服 token 指纹为 `2262e4d75d7b`，本地当前亚服 token 指纹为 `45a5a99e7b1b`，均不等于远端旧 `.env` 的 `9ba856dfbbcb`；远端旧 token 还伴随 KOOK 401，不应直接复用。
 - 2026-06-18：经用户明确点名授权，删除历史公共分组中 3 个此前承载过亚服播报、但已被 `asia-` 前缀专用频道替代的旧播报频道：`📯丨战报推送` `8139656704033247`、`击杀播报` `5938739897296829`、`死亡播报` `4201481428779754`。删除前 SQLite 复查这 3 个 ID 均不在当前欧服 `fumass` 绑定字段中，`pragma integrity_check=ok`；KOOK 删除前为 9 个分组、60 个频道，删除后重新拉取为 9 个分组、57 个频道，`deleted_remaining=none`，正式 `eu-` 11 个分组/频道 ID 与正式 `asia-` 11 个分组/频道 ID 均 `missing=none`。追查亚服本地库时发现残留兜底字段 `broadcast_channel_id=5938739897296829`，已先备份亚服数据库到 `data/backups/bot-before-clear-deleted-broadcast-channel-20260618_003804.db`，再清空该字段；复查亚服 `old_three_hits=none`，`battle_report_channel_id=3891092612097998`，击杀/阵亡/成员变动均指向 `asia-` 前缀频道，`pragma integrity_check=ok`。本机 bot 进程仍为欧服 PID `77524`（cwd `/Users/arm/Desktop/vscode/Albion-EU-kook`）和亚服 PID `77525`（cwd `/Users/arm/Desktop/vscode/Albion-ASIA-kook`）。
 - 2026-06-18：按用户确认的边界清理 KOOK 旧频道残留：**2026 年 6 月前就存在或有记录/消息历史的频道不要乱删除**，因此只删除能明确判定为 2026-06-15 之后机器人/测试误建的无前缀残留，不动历史公共分组中的频道。删除前 KOOK guild `4676167053713576` 为 12 个分组、70 个频道；删除子频道后再删空分组，已删除：无前缀分组 `🇪🇺欧服机器人` `9434486146128889` 及其 9 个子频道（`5049045269035713`、`2623993729377265`、`6644868985908441`、`5879756834033215`、`2698640452123082`、`4237526405508841`、`9231139618560872`、`9817584889557659`、`8777282537511467`），测试分组 `🛡️补装中心` `7062673477732329` 与 `审批测试` `4503321752460202`，以及空重复分组 `🛡️补装中心` `6561571423106429`。二次 KOOK 拉取验证：当时为 9 个分组、60 个频道，`deleted_remaining=none`，`expected_missing=none`，正式 `eu-`/`asia-` 分组和频道全部存在；历史公共频道 `📯丨战报推送` `8139656704033247`、`击杀播报` `5938739897296829`、`死亡播报` `4201481428779754` 因历史边界先保留，随后经用户明确点名授权删除，见上一条记录。SQLite 复查 fumass 绑定仍指向 `eu-` 频道，`pragma integrity_check=ok`；本机 bot 进程仍为欧服 PID `77524`（cwd `/Users/arm/Desktop/vscode/Albion-EU-kook`）和亚服 PID `77525`（cwd `/Users/arm/Desktop/vscode/Albion-ASIA-kook`）。
 - 2026-06-18：修正欧服 bot 误用/回填亚服补装频道的问题，并完成双区服前缀频道规整。先确认欧服 `fumass`（KOOK guild `4676167053713576`）补装四字段曾与亚服本地 Mika 绑定完全相同，随后新增/使用 `scripts/ensure_region_channels.py --guild-id 4676167053713576 --write-db` 创建并写回当前区服专属频道，只复用 `eu-` 前缀频道，不复用无前缀或 `asia-` 频道。当前欧服布局：`eu-📡运营中心` 分组 `1724922736191192`、`eu-🛡️补装中心` 分组 `6439622256826005`、`eu-✅绑定审批` `6593832141020317`、`eu-📢成员变动` `3626370873673494`、`eu-⚔️击杀播报` `8415323442916410`、`eu-💀阵亡播报` `3162690807846766`、`eu-🗺️战报推送` `7532177792027984`、`eu-📥补装申请` `1796790216225633`、`eu-🔍补装审核` `6148000249978208`、`eu-💰补装发放` `5305586332660592`、`eu-📣补装通知` `9949355172393396`。SQLite 复查 `pragma integrity_check=ok`；与亚服 `4676167053713576` 的运营/补装 9 个频道字段交叉比对 `shared_count=0`。本地欧服 bot 已重启为 PID `77524`，日志 `logs/bot-eu-region-20260617.log` 显示 `bot_id=49050 token_fp=2262e4d75d7b token_source=env_file` 和 `khl.receiver: [ init ] launched`；本机只剩欧服 PID `77524` 与亚服 PID `77525` 两个 `python -m bot.main` 进程。追加验证：欧服 `scripts/check.sh` 通过（165 个单元测试 + `compileall bot scripts tests`），亚服 `scripts/check.sh` 通过（164 个单元测试 + `compileall bot scripts tests`）；`lsof` 确认 PID `77524` cwd 为 `/Users/arm/Desktop/vscode/Albion-EU-kook`、PID `77525` cwd 为 `/Users/arm/Desktop/vscode/Albion-ASIA-kook`。
@@ -62,5 +65,5 @@
 
 - 同一个 `KOOK_TOKEN` 不得被两个 bot 进程同时使用。
 - 本地 `.env` 若使用某个已确认欧服实例的 token，必须先停止对应实例再本地启动。
-- 升级已确认的服务器实例时不要替换服务器上的旧 `KOOK_TOKEN`。
+- 日常升级不要无故替换线上 `KOOK_TOKEN`；若用户明确确认本地 token 最新，先比对 token 指纹再同步。
 - `.env`、数据库、日志和备份目录不得提交。

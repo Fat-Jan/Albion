@@ -6,18 +6,18 @@
 
 - 项目是面向单个欧服公会的 KOOK 机器人，两条主线：管理员绑公会 + 玩家自助绑角色（名字匹配+审批），绑定后查询免输名字。
 - `README.md` / `使用说明书.md` 作为通用欧服版本说明维护；具体公会、实例、真实频道 ID 和活测证据继续留在 `STATUS.md` / 本文件，不回灌到通用 README。
-- 当前进度：**M0-M6 已实现，欧服线上部署未确认**。欧服本地代码、配置默认值和文档默认标识已适配；历史“线上/部署”记录多来自亚服项目迁移残留，不要直接当作欧服验收证据。当前项目版本 `1.0`（`bot/version.py`，`/ping` 返回 `pong v1.0`）。AI 辅助已扩展为高频只读露出：`/助手`、`/战报 [日期]`、`/补装解释`、补装审核卡「AI 审核提示」、自动 ZvZ 战报卡「AI 摘要」；`/战报 6-15` 等日期参数按北京时间目标日 14:30 到次日 05:00 过滤。AI 仍不得审批、发组、撤组、改金额或标记发放。M7 出勤后置，等真实用户反馈明确考勤口径后再做。
+- 当前进度：**M0-M6 已实现，欧服已在新加坡服务器按双区服隔离方式上线**。欧服本地代码、配置默认值和文档默认标识已适配；旧 `/opt/albion-kook` 单服务已归档并移除，当前欧服线上实例是 `/opt/albion-kook-eu` + `albion-kook-eu.service`。当前项目版本 `1.0`（`bot/version.py`，`/ping` 返回 `pong v1.0`）。AI 辅助已扩展为高频只读露出：`/助手`、`/战报 [日期]`、`/补装解释`、补装审核卡「AI 审核提示」、自动 ZvZ 战报卡「AI 摘要」；`/战报 6-15` 等日期参数按北京时间目标日 14:30 到次日 05:00 过滤。AI 仍不得审批、发组、撤组、改金额或标记发放。M7 出勤后置，等真实用户反馈明确考勤口径后再做。
 - 项目已采用轻量 harness：后续接手先读 `AGENTS.md` 和 `STATUS.md`；离线门禁统一跑 `scripts/check.sh`。离线通过不等于 KOOK 真实交互已活测，涉及线上/真实 bot 的结论必须补充活测证据。
 - 当前本地 SQLite 绑定：旧 KOOK guild `5204615975879655` -> Albion guild `Top Squad` (`7tmt12sOTkGgcqZL3jSy7Q`)，战报频道 `3758107198191605`，库内本会最小参战人数仍为 `5`，但当前代码自动战报最低按 20 人生效；新加入的 KOOK 服务器 `fumass` 已绑定 guild `4676167053713576` -> `Top Squad`，当前必须使用 `eu-` 前缀频道：`eu-✅绑定审批` `6593832141020317`、`eu-📢成员变动` `3626370873673494`、`eu-⚔️击杀播报` `8415323442916410`、`eu-💀阵亡播报` `3162690807846766`、`eu-🗺️战报推送` `7532177792027984`、`eu-📥补装申请` `1796790216225633`、`eu-🔍补装审核` `6148000249978208`、`eu-💰补装发放` `5305586332660592`、`eu-📣补装通知` `9949355172393396`；旧无前缀补装四频道已确认与亚服 Mika 相同，2026-06-18 起不再作为欧服配置使用。2026-06-18 已删除后续机器人/测试误建残留：`🇪🇺欧服机器人` 分组及其无前缀 9 子频道、`审批测试` 和两个无前缀 `🛡️补装中心` 分组；经用户明确点名授权，已额外删除此前承载过亚服播报、但已被 `asia-` 前缀专用频道替代的 `📯丨战报推送` `8139656704033247`、`击杀播报` `5938739897296829`、`死亡播报` `4201481428779754`，并清空亚服本地库残留 `broadcast_channel_id=5938739897296829`。用户边界：2026 年 6 月前就存在或有记录/消息历史的频道默认不要乱删除，除非用户明确点名授权；KOOK API 无创建时间且证据不硬时默认保留。绑定一律按运行时 guild_id 走，代码不写死服务器。
 - 测试参考角色：armskey/muaowo 可作为非本会角色；需要本会成员就从欧服 `/guilds/7tmt12sOTkGgcqZL3jSy7Q/members` 挑 `Top Squad` 活跃成员。
-- 实际运行环境是 **Python 3.13.12**（计划写 3.11+），khl.py 0.3.17 / httpx 0.28.1 / python-dotenv，3.13 兼容无碍；venv 在 `.venv/`。
+- 本地实际运行环境是 **Python 3.13.12**（计划写 3.11+），新加坡服务器运行 Python 3.11.2；khl.py 0.3.17 / httpx 0.28.1 / python-dotenv 均已验证兼容。
 - 技术栈定死：Python + khl.py（WebSocket）+ httpx + SQLite；数据源默认走欧服三件套（gameinfo-ams / europe AODP / albionbb-eu），AlbionBB 网页链接、官方击杀板 server、显示时区和自动战报窗口已配置化，欧服默认仍是 europe.albionbb.com / live_ams / 北京时间窗口，别混区。
 - 所有设计决议已收口进 `KOOK机器人实现计划.md` 第十一节，无遗留待定项。
 - 项目 GitHub 仓库地址：`https://github.com/Fat-Jan/Albion.git`，本地 Git remote `origin` 已指向该地址。
 - 仓库与分支真相：远端仓库为 `https://github.com/Fat-Jan/Albion.git`；欧服目录 `/Users/arm/Desktop/vscode/Albion-EU-kook` 固定使用 `deploy/eu` 分支；亚服目录 `/Users/arm/Desktop/vscode/Albion-ASIA-kook` 固定使用 `deploy/asia` 分支；`main` 只当共享上游主线，不直接作为某个服务器实例长期开发分支。双目录 VS Code 入口在 `/Users/arm/Desktop/vscode/Albion-ASIA-EU-kook.code-workspace`。
 - 功能同步规则：共享功能修复用独立提交双向 cherry-pick；不要整分支互 merge。整分支 merge 会把区服接口默认值、`.env.example`、公会名、运行证据和部署记录混进另一实例。
-- 远端注意：阿里云新加坡 `aliyun_singapore:/opt/albion-kook` 是亚服旧服务/旧文档残留的可能性很高。2026-06-16 只读复查：该目录不是 git 工作树，`.env` 仍覆盖亚服三件套（gameinfo-sgp / AODP east / albionbb asia），`albion-kook.service` active/running，PID `1208143`。不要把它默认视为欧服线上；如需部署欧服，先明确目标服务器/目录/token 边界。
-- 当前数据库概况（2026-06-18 复查）：`guild_binding=2`（旧 guild `5204615975879655` + fumass `4676167053713576`）、`player_binding=1`、`pending_approval=1`、`regear_request=2`、`regear_reviewer_request=0`、`market_price_reference=10595`，`pragma integrity_check=ok`。旧 guild 当前 `guild_binding.battle_report_channel_id=3758107198191605`；fumass 当前 `battle_report_channel_id=7532177792027984`。2026-06-18 交叉比对欧服/亚服 `4676167053713576` 的运营+补装 9 个频道字段，`shared_count=0`；本地欧服 bot PID `77524`，token 诊断 `bot_id=49050 token_fp=2262e4d75d7b token_source=env_file`。
+- 远端注意：阿里云新加坡 `aliyun_singapore` 已完成双区服替换部署。旧 `albion-kook.service`、`/opt/albion-kook`、`/var/log/albion-kook` 已归档到 `/root/albion-kook-legacy-20260618-022847` 后移除运行路径；当前只保留 `/opt/albion-kook-eu` + `albion-kook-eu.service` 和 `/opt/albion-kook-asia` + `albion-kook-asia.service`。欧服目录 checkout `deploy/eu` `b79667c`，远端 `.env` 显式 `KOOK_REGION_CODE=eu`、`gameinfo-ams`、AODP `europe`、AlbionBB `eu/europe`、`KILLBOARD_SERVER=live_ams`，token 指纹 `2262e4d75d7b`，启动日志 bot_id `49050` 且 KOOK WebSocket `[ init ] launched`；亚服目录 checkout `deploy/asia` `fcd19d6`，远端 `.env` 显式 `KOOK_REGION_CODE=asia`、`gameinfo-sgp`、AODP `east`、AlbionBB `asia/east`、`KILLBOARD_SERVER=live_sgp`，token 指纹 `45a5a99e7b1b`，启动日志 bot_id `49025` 且 KOOK WebSocket `[ init ] launched`。两服务均 `active`/`enabled`，本地两个 bot 进程已停止，避免同 token 双开。
+- 当前数据库概况（2026-06-18 复查）：`guild_binding=2`（旧 guild `5204615975879655` + fumass `4676167053713576`）、`player_binding=1`、`pending_approval=1`、`regear_request=2`、`regear_reviewer_request=0`、`market_price_reference=10595`，`pragma integrity_check=ok`。旧 guild 当前 `guild_binding.battle_report_channel_id=3758107198191605`；fumass 当前 `battle_report_channel_id=7532177792027984`。2026-06-18 交叉比对欧服/亚服 `4676167053713576` 的运营+补装 9 个频道字段，`shared_count=0`；远端 `scripts.ensure_region_channels --guild-id 4676167053713576 --write-db` 已确认 `eu-` 与 `asia-` 两套前缀分组/频道都存在且互不复用。
 
 ## 已收口的关键决议（2026-06-14）
 
@@ -29,9 +29,9 @@
 - 物品中文名接 ao-bin-dumps `LocalizedNames["ZH-CN"]`，预处理成本地 dict 随包，不运行时拉 GitHub。
 - 大额播报改为固定规则：击杀/死亡声望大于 100 万，或银币总损失大于 1000 万；旧 `/设置 大额阈值` 只保留兼容提示，不再改运行规则。
 - 文档入口：`README.md` 已更新为当前状态；`使用说明书.md` 已新增，覆盖管理员初始化、成员绑定、补装流程、自动任务、估值口径和运维排错。
-- AI 辅助：已按“受控 AI 服务 + 窄白名单只读路由”实现，使用 LongCat/OpenAI 兼容接口（当前模型 `LongCat-2.0-Preview`）。AI 当前会出现在 `/战报`、`/助手`、`/补装解释`、补装审核卡「AI 审核提示」和自动 ZvZ 战报卡「AI 摘要」；不进入绑定审批、补装审批、金额改写、发组/撤组或发放标记链路。普通成员通过 `/助手` 可查本人绑定状态、最近击杀/阵亡、本人补装状态，管理员/补装审核员可查全服补装队列，管理员可查频道配置概况。AI 事实包带 `schema_version/tool`，输出层拦截危险动作声明并脱敏疑似 Token/API Key；AI 回复凡提到时间必须标注口径：服务器/API 时间 UTC、数据库/服务器时间 UTC，或北京时间 UTC+8。欧服实例启用和真实输出质量需要等目标运行环境确认后验证。
+- AI 辅助：已按“受控 AI 服务 + 窄白名单只读路由”实现，使用 LongCat/OpenAI 兼容接口（当前模型 `LongCat-2.0-Preview`）。AI 当前会出现在 `/战报`、`/助手`、`/补装解释`、补装审核卡「AI 审核提示」和自动 ZvZ 战报卡「AI 摘要」；不进入绑定审批、补装审批、金额改写、发组/撤组或发放标记链路。普通成员通过 `/助手` 可查本人绑定状态、最近击杀/阵亡、本人补装状态，管理员/补装审核员可查全服补装队列，管理员可查频道配置概况。AI 事实包带 `schema_version/tool`，输出层拦截危险动作声明并脱敏疑似 Token/API Key；AI 回复凡提到时间必须标注口径：服务器/API 时间 UTC、数据库/服务器时间 UTC，或北京时间 UTC+8。欧服线上实例已启用，真实输出质量继续看日志和频道反馈。
 - 版本号控制：当前版本 `1.0`，代码单一来源是 `bot/version.py`；`bot.main.ping_text()` 使用同一来源，测试见 `tests/test_version.py`。
-- 战报推送：`bot/albion/battle_report.py`、`bot/cards/battle_report_cards.py`、`bot/tasks/auto.py` 已接入聚合、卡片、AI 摘要、北京时间窗口、专属频道推送、本会最小人数阈值和 SQLite 持久去重；`/设置 战报推送频道`、`/设置 战报频道`、`/设置 战报本会最小人数` 已接入，当前最低按 20 人生效。欧服真实自动命中和 AI 摘要质量需要等明确欧服实例后再看日志和频道输出，不要把亚服旧 systemd 记录写成欧服已稳定命中。
+- 战报推送：`bot/albion/battle_report.py`、`bot/cards/battle_report_cards.py`、`bot/tasks/auto.py` 已接入聚合、卡片、AI 摘要、北京时间窗口、专属频道推送、本会最小人数阈值和 SQLite 持久去重；`/设置 战报推送频道`、`/设置 战报频道`、`/设置 战报本会最小人数` 已接入，当前最低按 20 人生效。欧服线上 systemd 已启动并访问 `gameinfo-ams`，真实自动命中和 AI 摘要质量继续看日志和频道输出。
 
 ## 坑点 / 注意
 
@@ -54,7 +54,7 @@
 - **遭遇规模分层预估**：`numberOfParticipants` 是"补刀人数"（常=4，会把 ZvZ 误标小团，已弃用）。改用 `GroupMembers`(=主角所在小队，恒含主角本人) 做队伍口径 `scale_label`（单人1/小团2-7/团战8-20/ZvZ20+，免 API，用于列表/播报/估值）。详情卡用 `battle_scale_line`：查 `/battles/{id}` 整场人数（小规模≤6/小团≤30/团战≤80/ZvZ>80）显示「你队N人 整场M人 类别」+ 尖刀小队推测。
 - **尖刀/炸弹小队启发式**（仅详情卡）：你队 `GroupMembers≤10` 且 整场 `players≥40` → 标「⚡尖刀/炸弹小队?(推测)」。`gi.battle(id)` 查询，失败回退队伍口径。
 - **KOOK 卡片图片坑**：`Module.ImageGroup` 内 `Element.Image` 不能带 `size`（带 `sm` 会 40000 校验失败），用默认即可；外链图（官方渲染 `render.albiononline.com/v1/item/{id}.png?quality=N`）KOOK 服务端会抓取并缓存到自有 CDN，无需本地中转。`items.render_url()` 是图床方案的唯一改动点。
-- **同 token 调试坑**：任意两个运行中的 bot 不能同时使用同一个 `KOOK_TOKEN`，否则会抢 KOOK WebSocket/重复处理消息。欧服部署状态尚未确认；不要套用亚服旧 `albion-kook.service` 记录来判断当前欧服 token 占用。调试前先确认目标实例、目录、systemd 服务和 token 指纹；如果本地使用同一个真实 bot token，必须先停掉对应实例。启动日志会打印安全诊断 `bot_id/token_fp/token_source`，不要打印 token 原文。
+- **同 token 调试坑**：任意两个运行中的 bot 不能同时使用同一个 `KOOK_TOKEN`，否则会抢 KOOK WebSocket/重复处理消息。调试前先确认目标实例、目录、systemd 服务和 token 指纹；如果本地使用同一个真实 bot token，必须先停掉对应实例。欧服当前服务名是 `albion-kook-eu.service`，亚服当前服务名是 `albion-kook-asia.service`。启动日志会打印安全诊断 `bot_id/token_fp/token_source`，不要打印 token 原文。
 
 ## 进度
 
