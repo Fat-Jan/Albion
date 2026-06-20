@@ -632,8 +632,13 @@ class AIContextTest(unittest.TestCase):
                 "total_fame": 1234567,
                 "guild_players": 3,
                 "guild_kill_fame": 32000,
+                "guild_rank": 1,
+                "guild_count": 3,
+                "guild_participation_percent": 50,
+                "guild_kill_death_delta": 1,
                 "guild_row": {"kills": 4, "deaths": 3},
                 "top_guilds": [{"name": "Mika", "players": 3, "kills": 4, "deaths": 3}],
+                "enemy_guilds": [{"name": "CCTV", "players": 2, "kills": 3, "deaths": 3}],
                 "top_alliances": [{"name": "5I7", "players": 3, "kills": 4, "deaths": 3}],
                 "player_highlights": {"most_deaths": {"name": "Bob", "deaths": 2}},
             }
@@ -641,7 +646,11 @@ class AIContextTest(unittest.TestCase):
 
         self.assertEqual(context["tool"], "battle_report_summary")
         self.assertEqual(context["guild"]["players"], 3)
+        self.assertEqual(context["guild"]["rank"], 1)
+        self.assertEqual(context["guild"]["participation_percent"], 50)
+        self.assertEqual(context["guild"]["kill_death_delta"], 1)
         self.assertEqual(context["leaders"]["guilds"][0]["name"], "Mika")
+        self.assertEqual(context["leaders"]["enemy_guilds"][0]["name"], "CCTV")
         self.assertEqual(context["highlights"]["most_deaths"]["name"], "Bob")
         self.assertTrue(context["policy"]["readonly_summary_only"])
 

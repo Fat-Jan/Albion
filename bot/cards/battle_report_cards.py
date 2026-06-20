@@ -14,8 +14,17 @@ def battle_report_card(report: dict, ai_summary: str | None = None) -> CardMessa
         f"本会 `{guild_name}`　{report.get('guild_players', 0)} 人",
         f"击杀声望 `{fmt(report.get('guild_kill_fame', 0))}`",
     ]
+    guild_rank = report.get("guild_rank")
+    guild_count = report.get("guild_count")
+    if guild_rank and guild_count:
+        guild_lines.append(f"排名 `第 {guild_rank}/{guild_count}`")
+    guild_lines.append(f"参战占比 `{report.get('guild_participation_percent', 0)}%`")
     if guild_row.get("kills") or guild_row.get("deaths"):
-        guild_lines.append(f"击杀/阵亡 {guild_row.get('kills', 0)}/{guild_row.get('deaths', 0)}")
+        guild_lines.append(
+            "击杀/阵亡 "
+            f"{guild_row.get('kills', 0)}/{guild_row.get('deaths', 0)}"
+            f"　击杀差 `{_signed(report.get('guild_kill_death_delta', 0))}`"
+        )
 
     sections = [
         kmd_section(
@@ -37,6 +46,7 @@ def battle_report_card(report: dict, ai_summary: str | None = None) -> CardMessa
     sections.extend(
         [
             Module.Section(Element.Text(_entity_block("公会战力榜", report.get("top_guilds") or []), Types.Text.KMD)),
+            Module.Section(Element.Text(_entity_block("主要对手", report.get("enemy_guilds") or []), Types.Text.KMD)),
             Module.Section(Element.Text(_entity_block("联盟战力榜", report.get("top_alliances") or []), Types.Text.KMD)),
             Module.Section(Element.Text(_highlight_block(report.get("player_highlights") or {}), Types.Text.KMD)),
         ]
@@ -66,6 +76,16 @@ def _time_line(raw: str) -> str:
     if bj:
         return f"时间 `{ts} UTC`（{display_time_prefix()} {bj}）"
     return f"时间 `{ts}`" if ts else "时间 `?`"
+
+
+def _signed(value: object) -> str:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        number = 0
+    if number > 0:
+        return f"+{number}"
+    return str(number)
 
 
 def _entity_block(title: str, rows: list[dict]) -> str:

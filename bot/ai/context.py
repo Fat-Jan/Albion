@@ -170,12 +170,17 @@ def battle_report_context(report: dict) -> dict:
         "guild": {
             "name": report.get("guild_name"),
             "players": int(report.get("guild_players") or 0),
+            "rank": report.get("guild_rank"),
+            "guild_count": int(report.get("guild_count") or 0),
+            "participation_percent": int(report.get("guild_participation_percent") or 0),
+            "kill_death_delta": int(report.get("guild_kill_death_delta") or 0),
             "kill_fame": int(report.get("guild_kill_fame") or 0),
             "kills": int((report.get("guild_row") or {}).get("kills") or 0),
             "deaths": int((report.get("guild_row") or {}).get("deaths") or 0),
         },
         "leaders": {
             "guilds": _ranking_rows(report.get("top_guilds") or []),
+            "enemy_guilds": _ranking_rows(report.get("enemy_guilds") or []),
             "alliances": _ranking_rows(report.get("top_alliances") or []),
         },
         "highlights": {
