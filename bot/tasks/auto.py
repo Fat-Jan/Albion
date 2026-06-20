@@ -1,15 +1,16 @@
 """定时任务：死亡播报 + 退会复查。共用 khl 调度器（apscheduler）。
 
-- 死亡播报：普通时段每 4 分钟轮询全局 /events（多页），20:00-00:30 每 90 秒，
+- 死亡播报：普通时段每 90 秒轮询全局 /events（多页），20:00-00:30 每 60 秒，
   筛出本会击杀/阵亡推到播报频道，
   大额（击杀/死亡声望大于 100 万，或受害者损失大于 1000 万银）高亮。
   首轮只记录不播报，避免开机刷历史。
   注：官方 /events?guildId= 只回本会"击杀"不含"阵亡"，故改走全局 feed 双向筛
   （全局事件量随区服波动；ZvZ 突发超覆盖会丢少量，已记日志）。
 - 退会复查：每日比对公会成员，已绑定但退会的撤身份组 + 清绑定，并优先通知成员变动频道。
-- ZvZ 战报：按专属战报频道配置，在配置的展示时区窗口拉取 AlbionBB
-  候选战役，官方详情聚合后推送，并用 SQLite 持久去重。
+- ZvZ 战报：按专属战报频道配置，在配置的展示时区窗口优先拉官方
+  guild battles 候选，AlbionBB 作为补充，官方详情聚合后推送，并用 SQLite 持久去重。
 """
+import asyncio
 import logging
 from collections import deque
 from datetime import UTC, datetime, time
@@ -32,14 +33,14 @@ from bot.store import repo
 log = logging.getLogger(__name__)
 
 BROADCAST_CHECK_INTERVAL_SEC = 30
-BROADCAST_INTERVAL_SEC = 4 * 60
-BROADCAST_BUSY_INTERVAL_SEC = 90
+BROADCAST_INTERVAL_SEC = 90
+BROADCAST_BUSY_INTERVAL_SEC = 60
 BROADCAST_INTERVAL_TOLERANCE_SEC = 0.5
 BROADCAST_BUSY_START = time(20, 0)
 BROADCAST_BUSY_END = time(0, 30)
 FEED_PAGES = 4  # 每轮拉的全局 feed 页数（51/页），覆盖轮询间隔内的事件量
 MAX_BROADCAST_PER_TICK = 15  # 控频，避免刷爆 KOOK 配额
-BATTLE_REPORT_INTERVAL_MIN = 15
+BATTLE_REPORT_INTERVAL_MIN = 3
 BATTLE_REPORT_MIN_PLAYERS = 20
 BROADCAST_LARGE_FAME_THRESHOLD = 1_000_000
 BROADCAST_LARGE_LOSS_THRESHOLD = 10_000_000
@@ -185,6 +186,72 @@ def _candidate_mentions_guild(row: dict[str, Any], guild_name: str) -> bool:
     return False
 
 
+async def _fetch_event_feed_pages(gi: GameInfo) -> list[dict]:
+    async def fetch_page(offset: int) -> list[dict]:
+        try:
+            page = await gi.events(limit=51, offset=offset)
+        except Exception as exc:
+            log.warning("全局 feed 轮询失败 offset=%s: %s", offset, exc)
+            return []
+        if not isinstance(page, list):
+            log.warning("全局 feed 格式异常 offset=%s: %s", offset, type(page).__name__)
+            return []
+        return [ev for ev in page if isinstance(ev, dict)]
+
+    offsets = range(0, FEED_PAGES * 51, 51)
+    pages = await asyncio.gather(*(fetch_page(offset) for offset in offsets))
+    return [event for page in pages for event in page]
+
+
+async def _battle_report_candidates(
+    gi: GameInfo,
+    bb_client,
+    *,
+    albion_guild_id: str,
+    guild_name: str,
+) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+
+    def append_candidate(row: dict[str, Any], *, official_guild_match: bool = False) -> None:
+        if not isinstance(row, dict):
+            return
+        battle_id = _battle_candidate_id(row)
+        if not battle_id or battle_id in seen_ids:
+            return
+        copied = dict(row)
+        if official_guild_match:
+            copied["_guild_match"] = True
+        candidates.append(copied)
+        seen_ids.add(battle_id)
+
+    try:
+        official_rows = await gi.battles(guild_id=albion_guild_id, limit=20)
+    except Exception as exc:
+        log.warning("拉取官方 guild 战役列表失败 guild=%s: %s", guild_name, exc)
+        official_rows = []
+    if isinstance(official_rows, list):
+        for row in official_rows:
+            append_candidate(row, official_guild_match=True)
+    else:
+        log.warning("官方 guild 战役列表格式异常: %s", type(official_rows).__name__)
+
+    try:
+        albionbb_rows = await bb_client.albionbb_get(
+            "/battles", params={"minPlayers": BATTLE_REPORT_MIN_PLAYERS, "page": 1}
+        )
+    except Exception as exc:
+        log.warning("拉取 AlbionBB 战役列表失败: %s", exc)
+        albionbb_rows = []
+    if isinstance(albionbb_rows, list):
+        for row in albionbb_rows:
+            append_candidate(row)
+    else:
+        log.warning("AlbionBB 战役列表格式异常: %s", type(albionbb_rows).__name__)
+
+    return candidates
+
+
 def _configured_battle_report_bindings() -> list[dict]:
     return [
         gb
@@ -231,23 +298,19 @@ async def _run_battle_report_tick(
     if not bindings:
         return
 
-    try:
-        candidates = await bb_client.albionbb_get(
-            "/battles", params={"minPlayers": BATTLE_REPORT_MIN_PLAYERS, "page": 1}
-        )
-    except Exception as exc:
-        log.warning("拉取 AlbionBB 战役列表失败: %s", exc)
-        return
-    if not isinstance(candidates, list):
-        log.warning("AlbionBB 战役列表格式异常: %s", type(candidates).__name__)
-        return
-
     for gb in bindings:
         kgid = gb["kook_guild_id"]
+        albion_guild_id = gb["albion_guild_id"]
         guild_name = gb["albion_guild_name"]
         min_guild_players = _effective_battle_report_min_guild_players(gb)
+        candidates = await _battle_report_candidates(
+            gi,
+            bb_client,
+            albion_guild_id=albion_guild_id,
+            guild_name=guild_name,
+        )
         for row in candidates:
-            if not isinstance(row, dict) or not _candidate_mentions_guild(row, guild_name):
+            if not row.get("_guild_match") and not _candidate_mentions_guild(row, guild_name):
                 continue
             battle_id = _battle_candidate_id(row)
             if not battle_id or repo.has_seen_battle_report(kgid, battle_id):
@@ -310,14 +373,7 @@ def register(bot: Bot, gi: GameInfo, mk: Market, ai_service: AIService | None = 
             return
         _last_death_broadcast_at = now
 
-        events: list = []
-        for off in range(0, FEED_PAGES * 51, 51):
-            try:
-                page = await gi.events(limit=51, offset=off)
-            except Exception as exc:
-                log.warning("全局 feed 轮询失败 offset=%s: %s", off, exc)
-                break
-            events.extend(page or [])
+        events = await _fetch_event_feed_pages(gi)
 
         if not _primed:
             for ev in events:

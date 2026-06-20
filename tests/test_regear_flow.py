@@ -313,21 +313,45 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(channels["member-change"].messages, [])
 
     def test_death_broadcast_interval_uses_shorter_evening_window(self):
-        self.assertEqual(auto._death_broadcast_interval_seconds(datetime(2026, 6, 14, 19, 59)), 240)
-        self.assertEqual(auto._death_broadcast_interval_seconds(datetime(2026, 6, 14, 20, 0)), 90)
-        self.assertEqual(auto._death_broadcast_interval_seconds(datetime(2026, 6, 14, 23, 59)), 90)
-        self.assertEqual(auto._death_broadcast_interval_seconds(datetime(2026, 6, 15, 0, 29)), 90)
-        self.assertEqual(auto._death_broadcast_interval_seconds(datetime(2026, 6, 15, 0, 30)), 240)
+        self.assertEqual(auto._death_broadcast_interval_seconds(datetime(2026, 6, 14, 19, 59)), 90)
+        self.assertEqual(auto._death_broadcast_interval_seconds(datetime(2026, 6, 14, 20, 0)), 60)
+        self.assertEqual(auto._death_broadcast_interval_seconds(datetime(2026, 6, 14, 23, 59)), 60)
+        self.assertEqual(auto._death_broadcast_interval_seconds(datetime(2026, 6, 15, 0, 29)), 60)
+        self.assertEqual(auto._death_broadcast_interval_seconds(datetime(2026, 6, 15, 0, 30)), 90)
 
     def test_death_broadcast_throttle_uses_current_interval(self):
         normal_now = datetime(2026, 6, 14, 19, 0)
         busy_now = datetime(2026, 6, 14, 21, 0)
 
-        self.assertFalse(auto._should_run_death_broadcast(normal_now, normal_now - timedelta(minutes=3, seconds=59)))
-        self.assertTrue(auto._should_run_death_broadcast(normal_now, normal_now - timedelta(minutes=4)))
-        self.assertFalse(auto._should_run_death_broadcast(busy_now, busy_now - timedelta(seconds=89)))
-        self.assertTrue(auto._should_run_death_broadcast(busy_now, busy_now - timedelta(seconds=90)))
-        self.assertTrue(auto._should_run_death_broadcast(busy_now, busy_now - timedelta(seconds=90) + timedelta(microseconds=1)))
+        self.assertFalse(auto._should_run_death_broadcast(normal_now, normal_now - timedelta(seconds=89)))
+        self.assertTrue(auto._should_run_death_broadcast(normal_now, normal_now - timedelta(seconds=90)))
+        self.assertFalse(auto._should_run_death_broadcast(busy_now, busy_now - timedelta(seconds=59)))
+        self.assertTrue(auto._should_run_death_broadcast(busy_now, busy_now - timedelta(seconds=60)))
+        self.assertTrue(auto._should_run_death_broadcast(busy_now, busy_now - timedelta(seconds=60) + timedelta(microseconds=1)))
+
+    async def test_death_broadcast_fetches_feed_pages_and_survives_one_failed_page(self):
+        repo.bind_guild("guild", "guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "broadcast_channel_id", "broadcast")
+        auto._primed = True
+        auto._seen.clear()
+        auto._seen_order.clear()
+        auto._last_death_broadcast_at = None
+        channels = {"broadcast": FakeChannel("broadcast")}
+        bot = FakeScheduledBot(channels)
+        gameinfo = FakeBroadcastGameInfo(
+            {
+                0: [],
+                51: [_broadcast_event(fame=1_000_001, killer_guild_id="guild")],
+                102: RuntimeError("timeout"),
+                153: [],
+            }
+        )
+        auto.register(bot, gameinfo, FakeBroadcastMarket(loss_total=0))
+
+        await bot.task.interval_tasks["death_broadcast"]()
+
+        self.assertEqual(sorted(gameinfo.event_offsets), [0, 51, 102, 153])
+        self.assertEqual(len(channels["broadcast"].messages), 1)
 
     def test_list_regear_filters_statuses(self):
         pending = repo.create_regear("guild", "user-1", "player-1", "event-1", 100)
@@ -1187,8 +1211,15 @@ class FakeBroadcastGameInfo:
     def __init__(self, events, members=None):
         self.events_data = events
         self.members_data = members if members is not None else events
+        self.event_offsets = []
 
     async def events(self, limit=51, offset=0):
+        self.event_offsets.append(offset)
+        if isinstance(self.events_data, dict):
+            value = self.events_data.get(offset, [])
+            if isinstance(value, Exception):
+                raise value
+            return value
         return self.events_data if offset == 0 else []
 
     async def guild_members(self, guild_id):
