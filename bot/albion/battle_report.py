@@ -29,6 +29,11 @@ def build_battle_report(
         kind="alliance",
     )
     guild_row = _find_by_name(guild_rows, guild_name)
+    guild_players = guild_row.get("players", 0)
+    guild_rank = _rank_by_name(guild_rows, guild_name)
+    total_players = _int(
+        _field(battle_detail, "totalPlayers", "TotalPlayers", default=len(players))
+    )
     battle_id = str(
         _field(
             battle_detail,
@@ -47,14 +52,19 @@ def build_battle_report(
         ),
         "guild_name": guild_name,
         "start_time": _field(battle_detail, "startTime", "StartTime", "startedAt", default=""),
-        "total_players": _int(
-            _field(battle_detail, "totalPlayers", "TotalPlayers", default=len(players))
-        ),
+        "total_players": total_players,
         "total_kills": _int(_field(battle_detail, "totalKills", "TotalKills", default=0)),
         "total_fame": _int(_field(battle_detail, "totalFame", "TotalFame", default=0)),
-        "guild_players": guild_row.get("players", 0),
+        "guild_players": guild_players,
+        "guild_rank": guild_rank,
+        "guild_count": len(guild_rows),
+        "guild_participation_percent": _percent(guild_players, total_players),
+        "guild_kill_death_delta": guild_row.get("kills", 0) - guild_row.get("deaths", 0),
         "guild_kill_fame": guild_row.get("kill_fame", 0),
         "guild_row": guild_row,
+        "enemy_guilds": [row for row in guild_rows if not _same(row.get("name", ""), guild_name)][
+            :top_limit
+        ],
         "top_guilds": guild_rows[:top_limit],
         "top_alliances": alliance_rows[:top_limit],
         "player_highlights": guild_player_highlights(players, battle_events, guild_name),
@@ -190,6 +200,19 @@ def _find_by_name(rows: list[dict[str, Any]], name: str) -> dict[str, Any]:
         if _same(row.get("name", ""), name):
             return row
     return {"name": name, "alliance": "", "players": 0, "kills": 0, "deaths": 0, "kill_fame": 0}
+
+
+def _rank_by_name(rows: list[dict[str, Any]], name: str) -> int | None:
+    for idx, row in enumerate(rows, start=1):
+        if _same(row.get("name", ""), name):
+            return idx
+    return None
+
+
+def _percent(part: int, total: int) -> int:
+    if total <= 0:
+        return 0
+    return round(part * 100 / total)
 
 
 def _same(left: Any, right: Any) -> bool:

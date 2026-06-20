@@ -69,6 +69,22 @@ class BattleReportTest(unittest.TestCase):
         self.assertEqual(highlights["top_death_fame"]["name"], "Cathy")
         self.assertEqual(highlights["top_death_fame"]["death_fame"], 900_000)
 
+    def test_report_adds_guild_rank_share_delta_and_main_enemies(self):
+        report = build_battle_report(
+            _battle_detail(),
+            _battle_events(),
+            guild_name="Mika",
+        )
+
+        self.assertEqual(report["guild_rank"], 1)
+        self.assertEqual(report["guild_count"], 3)
+        self.assertEqual(report["guild_participation_percent"], 50)
+        self.assertEqual(report["guild_kill_death_delta"], 1)
+        self.assertEqual(
+            [(r["name"], r["players"]) for r in report["enemy_guilds"]],
+            [("CCTV", 2), ("Nazareno", 1)],
+        )
+
     def test_report_uses_configured_albionbb_web_base(self):
         old_base = config.ALBIONBB_WEB_BASE
         try:
@@ -104,6 +120,10 @@ class BattleReportTest(unittest.TestCase):
         self.assertIn("Mika [5I7]　3人", text)
         self.assertIn("CCTV [HDD]　2人", text)
         self.assertIn("5I7　3人", text)
+        self.assertIn("排名 `第 1/3`", text)
+        self.assertIn("参战占比 `50%`", text)
+        self.assertIn("击杀差 `+1`", text)
+        self.assertIn("**主要对手**", text)
         self.assertIn("击杀最多：`Alice`　3 次", text)
         self.assertIn("击杀声望最高：`Bob`　`2.0万`", text)
         self.assertIn("阵亡最多：`Bob`　2 次", text)
