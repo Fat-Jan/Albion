@@ -60,6 +60,7 @@ GitHub 仓库：<https://github.com/Fat-Jan/Albion.git>
 - `/榜单 pvp|pve`：查当前绑定公会成员排行榜。
 - `/战役`：查当前绑定公会最近 ZvZ 战役。
 - `/战报 [日期]`：AI 基于最近战役生成短摘要；带日期时按北京时间 ZvZ 夜间窗口查询，例如 `/战报 6-15` 会统计 `2026-06-15 14:30` 到 `2026-06-16 05:00`。
+- `/出勤 [5-50]`：查看绑定公会最近 N 场符合阈值的战斗参与快照；这是战斗参与参考，不等同正式 CTA 考勤。
 - `/助手 <问题>`：AI 做命令引导和白名单只读查询，可查本人绑定状态、本人最近击杀/阵亡、本人补装进度；管理员/补装审核员可查补装队列概况，管理员可查频道配置概况。
 - `@机器人 <自然语言>`：把自然语言转成白名单内的只读动作，例如 `@机器人 帮我调用战报`、`@机器人 帮我调一下昨晚的战报`、`@机器人 帮我看 6-15 晚上的战役`、`@机器人 查一下 Latano 的战绩`、`@机器人 查金价`、`@机器人 看 pve 榜单`；绑定、解绑、公会绑定、设置、补装申请、审批、发组、撤组、改金额和标记发放不会被转成命令。
 
@@ -105,6 +106,9 @@ eu-🛡️补装中心
 - 退会复查：每天 04:00 比对 Albion 公会成员，退会则撤 KOOK 会员组、删除绑定，并通知成员变动频道。
 - 价格参考库刷新：每 3 天刷新 T4-T8 主手、双手、副手低价参考。
 - ZvZ 战报推送：默认北京时间 14:30 到次日 05:00 每 3 分钟检查一次，可通过 `DISPLAY_TZ` 和 `BATTLE_REPORT_WINDOW_*` 调整；优先使用官方 `/battles?guildId=` 候选，AlbionBB 仅作补充，命中绑定公会且本会参战人数至少 20 人后推送专属战报卡，更高配置会按更高值生效；开启 AI 时，卡片会附带只读 AI 摘要。
+- 出勤缓存采集：每 5 分钟采集绑定公会近期战斗详情，每天 05:00 采集成员快照；`/出勤` 和只读 API 会优先读取本地 SQLite 缓存，不足时命令侧再实时补拉。
+- 前端数据采集：每 5 分钟缓存绑定公会高声望击杀/阵亡事件，每 12 小时缓存 PvP/PvE/声望榜，每 15 分钟缓存 AODP 金价快照，供只读 dashboard 使用。
+- 只读 Web API：配置 `HEALTH_PORT` 或 `PORT` 后启动内部 HTTP 服务，提供静态 dashboard `/`，以及 `/healthz`、`/api/status`、`/api/invites`、`/api/events/high-fame`、`/api/leaderboards`、`/api/market/gold`、`/api/attendance/recent`；响应不包含 `.env` 密钥原文。
 
 ## 技术栈
 
@@ -149,6 +153,10 @@ DISPLAY_TZ_SHORT_LABEL=北京
 BATTLE_REPORT_WINDOW_START=14:30
 BATTLE_REPORT_WINDOW_END=05:00
 KOOK_BOT_MENTION_ALIASES=
+HEALTH_PORT=
+WEB_PUBLIC_BASE_URL=
+KOOK_INVITE_URL_EU=
+KOOK_INVITE_URL_ASIA=
 DB_PATH=data/bot.db
 LOG_LEVEL=INFO
 AI_ENABLED=false
