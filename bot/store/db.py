@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS guild_binding (
   kill_broadcast_channel_id TEXT,
   death_broadcast_channel_id TEXT,
   battle_report_channel_id TEXT,
-  battle_report_min_guild_players INTEGER DEFAULT 20,
+  battle_report_min_guild_players INTEGER DEFAULT 10,
   member_change_channel_id TEXT,
   regear_reviewer_role_ids TEXT,             -- 逗号分隔：可审批/发放补装的身份组
   trusted_role_ids     TEXT,                 -- 角色预检：逗号分隔的可信身份组
@@ -116,6 +116,15 @@ CREATE TABLE IF NOT EXISTS battle_report_seen (
   battle_id     TEXT NOT NULL,
   reported_at   TEXT DEFAULT (datetime('now')),
   PRIMARY KEY (kook_guild_id, region, battle_id)
+);
+
+-- 击杀/阵亡播报去重：同一 KOOK 服务器同一区服同一事件只播一次。
+CREATE TABLE IF NOT EXISTS event_broadcast_seen (
+  kook_guild_id TEXT NOT NULL,
+  region        TEXT NOT NULL DEFAULT 'eu',
+  event_id      TEXT NOT NULL,
+  broadcasted_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (kook_guild_id, region, event_id)
 );
 
 -- 出勤/前端只读缓存：成员快照。
@@ -297,7 +306,7 @@ def _ensure_guild_binding_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE guild_binding ADD COLUMN battle_report_channel_id TEXT")
     if "battle_report_min_guild_players" not in cols:
         conn.execute(
-            "ALTER TABLE guild_binding ADD COLUMN battle_report_min_guild_players INTEGER DEFAULT 20"
+            "ALTER TABLE guild_binding ADD COLUMN battle_report_min_guild_players INTEGER DEFAULT 10"
         )
     if "member_change_channel_id" not in cols:
         conn.execute("ALTER TABLE guild_binding ADD COLUMN member_change_channel_id TEXT")
@@ -352,6 +361,7 @@ def _ensure_region_columns(conn: sqlite3.Connection) -> None:
     _ensure_simple_region_column(conn, "regear_request", legacy_region)
     _ensure_simple_region_column(conn, "regear_reviewer_request", legacy_region)
     _ensure_battle_report_seen_region(conn, legacy_region)
+    _ensure_event_broadcast_seen_region(conn, legacy_region)
     _ensure_guild_member_snapshot_region(conn, legacy_region)
     _ensure_battle_snapshot_region(conn, legacy_region)
     _ensure_battle_participant_region(conn, legacy_region)
@@ -401,7 +411,7 @@ def _ensure_guild_binding_region(conn: sqlite3.Connection, legacy_region: str) -
           kill_broadcast_channel_id TEXT,
           death_broadcast_channel_id TEXT,
           battle_report_channel_id TEXT,
-          battle_report_min_guild_players INTEGER DEFAULT 20,
+          battle_report_min_guild_players INTEGER DEFAULT 10,
           member_change_channel_id TEXT,
           regear_reviewer_role_ids TEXT,
           trusted_role_ids     TEXT,
@@ -430,7 +440,7 @@ def _ensure_guild_binding_region(conn: sqlite3.Connection, legacy_region: str) -
           regear_apply_channel_id, regear_review_channel_id,
           regear_payout_channel_id, regear_notify_channel_id,
           broadcast_channel_id, kill_broadcast_channel_id, death_broadcast_channel_id,
-          battle_report_channel_id, COALESCE(battle_report_min_guild_players, 20),
+          battle_report_channel_id, COALESCE(battle_report_min_guild_players, 10),
           member_change_channel_id, regear_reviewer_role_ids, trusted_role_ids,
           COALESCE(kill_fame_threshold, 100000), created_by, created_at
         FROM guild_binding_legacy
@@ -515,6 +525,43 @@ def _ensure_battle_report_seen_region(conn: sqlite3.Connection, legacy_region: s
     )
     conn.execute("DROP TABLE battle_report_seen_legacy")
     _assert_same_count(before, _table_count(conn, "battle_report_seen"), "battle_report_seen")
+
+
+def _ensure_event_broadcast_seen_region(conn: sqlite3.Connection, legacy_region: str) -> None:
+    cols = _columns(conn, "event_broadcast_seen")
+    if not cols:
+        return
+    if _pk_columns(cols) == ("kook_guild_id", "region", "event_id"):
+        return
+    before = _table_count(conn, "event_broadcast_seen")
+    region_expr = "COALESCE(region, ?)" if "region" in cols else "?"
+    conn.execute("ALTER TABLE event_broadcast_seen RENAME TO event_broadcast_seen_legacy")
+    conn.execute(
+        """
+        CREATE TABLE event_broadcast_seen (
+          kook_guild_id TEXT NOT NULL,
+          region        TEXT NOT NULL DEFAULT 'eu',
+          event_id      TEXT NOT NULL,
+          broadcasted_at TEXT DEFAULT (datetime('now')),
+          PRIMARY KEY (kook_guild_id, region, event_id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO event_broadcast_seen
+            (kook_guild_id, region, event_id, broadcasted_at)
+        SELECT kook_guild_id, {region_expr}, event_id, broadcasted_at
+        FROM event_broadcast_seen_legacy
+        """.format(region_expr=region_expr),
+        (legacy_region,),
+    )
+    conn.execute("DROP TABLE event_broadcast_seen_legacy")
+    _assert_same_count(
+        before,
+        _table_count(conn, "event_broadcast_seen"),
+        "event_broadcast_seen",
+    )
 
 
 def _ensure_guild_member_snapshot_region(

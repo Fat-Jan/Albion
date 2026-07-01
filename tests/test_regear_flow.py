@@ -319,6 +319,12 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(auto._death_broadcast_interval_seconds(datetime(2026, 6, 15, 0, 29)), 60)
         self.assertEqual(auto._death_broadcast_interval_seconds(datetime(2026, 6, 15, 0, 30)), 90)
 
+    def test_death_broadcast_fetches_more_pages_during_busy_window(self):
+        self.assertEqual(auto._feed_pages(datetime(2026, 6, 14, 19, 59)), 4)
+        self.assertEqual(auto._feed_pages(datetime(2026, 6, 14, 20, 0)), 6)
+        self.assertEqual(auto._feed_pages(datetime(2026, 6, 15, 0, 29)), 6)
+        self.assertEqual(auto._feed_pages(datetime(2026, 6, 15, 0, 30)), 4)
+
     def test_death_broadcast_throttle_uses_current_interval(self):
         normal_now = datetime(2026, 6, 14, 19, 0)
         busy_now = datetime(2026, 6, 14, 21, 0)
@@ -352,6 +358,32 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(sorted(gameinfo.event_offsets), [0, 51, 102, 153])
         self.assertEqual(len(channels["broadcast"].messages), 1)
+
+    async def test_death_broadcast_busy_window_fetches_six_feed_pages(self):
+        gameinfo = FakeBroadcastGameInfo({offset: [] for offset in range(0, 6 * 51, 51)})
+
+        await auto._fetch_event_feed_pages(gameinfo, now=datetime(2026, 6, 14, 20, 0))
+
+        self.assertEqual(sorted(gameinfo.event_offsets), [0, 51, 102, 153, 204, 255])
+
+    async def test_death_broadcast_allows_thirty_messages_per_tick(self):
+        repo.bind_guild("guild", "guild", "Albion Guild", "admin")
+        repo.set_setting("guild", "broadcast_channel_id", "broadcast")
+        auto._primed = True
+        auto._seen.clear()
+        auto._seen_order.clear()
+        auto._last_death_broadcast_at = None
+        events = [
+            _broadcast_event(f"event-{idx}", fame=1_000_001, killer_guild_id="guild")
+            for idx in range(31)
+        ]
+        channels = {"broadcast": FakeChannel("broadcast")}
+        bot = FakeScheduledBot(channels)
+        auto.register(bot, FakeBroadcastGameInfo(events), FakeBroadcastMarket(loss_total=0))
+
+        await bot.task.interval_tasks["death_broadcast"]()
+
+        self.assertEqual(len(channels["broadcast"].messages), 30)
 
     def test_list_regear_filters_statuses(self):
         pending = repo.create_regear("guild", "user-1", "player-1", "event-1", 100)

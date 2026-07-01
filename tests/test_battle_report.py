@@ -201,7 +201,7 @@ class BattleReportAutoTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(gi.battles_calls, [{"guild_id": "albion-guild", "limit": 20}])
-        self.assertEqual(bb.calls, [{"minPlayers": 20, "page": 1}])
+        self.assertEqual(bb.calls, [{"minPlayers": 10, "page": 1}])
         self.assertEqual(bot.client.channels["battle-channel"].send_count, 1)
         self.assertTrue(repo.has_seen_battle_report("guild", "123"))
 
@@ -291,12 +291,12 @@ class BattleReportAutoTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("**AI 摘要**", text)
         self.assertIn("本会参战 3 人", text)
 
-    async def test_battle_report_tick_enforces_at_least_twenty_guild_players(self):
+    async def test_battle_report_tick_allows_ten_guild_players_when_configured_lower(self):
         repo.bind_guild("guild", "albion-guild", "Mika", "admin")
         repo.set_setting("guild", "battle_report_channel_id", "battle-channel")
         repo.set_setting("guild", "battle_report_min_guild_players", 5)
         bot = FakeBot()
-        gi = FakeBattleGameInfo(_battle_detail_with_guild_players(6), _battle_events())
+        gi = FakeBattleGameInfo(_battle_detail_with_guild_players(10), _battle_events())
         bb = FakeAlbionBB(
             [
                 {
@@ -313,9 +313,8 @@ class BattleReportAutoTest(unittest.IsolatedAsyncioTestCase):
             now=datetime(2026, 6, 14, 6, 30),
         )
 
-        channel = bot.client.channels.get("battle-channel")
-        self.assertEqual(channel.send_count if channel else 0, 0)
-        self.assertFalse(repo.has_seen_battle_report("guild", "123"))
+        self.assertEqual(bot.client.channels["battle-channel"].send_count, 1)
+        self.assertTrue(repo.has_seen_battle_report("guild", "123"))
 
     async def test_battle_report_tick_skips_unconfigured_window_and_seen(self):
         repo.bind_guild("guild", "albion-guild", "Mika", "admin")

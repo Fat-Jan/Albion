@@ -73,3 +73,13 @@
   - `git diff --check` → OK
 - **External probe:** 当前 shell 未注入 `AI_API_KEY`，未读取 `.env` 密钥，真实 `curl https://token.sensenova.cn/v1/chat/completions` 留到 Phase 5 env 注入后执行。代码级 MockTransport 已验证 base_url 结尾 `/v1` 时请求路径为 `/v1/chat/completions`，且只返回 `message.content`、忽略 `reasoning_content`。
 - **Self-review:** `git diff -- bot/store bot/tasks/auto.py` 无输出，未越界修改 Phase 3.2/3.4 文件；`rg "sk-OTlM|LongCat-2.0|api\.longcat|AI_BASE_URL|AI_MODEL|AI_MAX_OUTPUT" .env.example bot tests README.md 使用说明书.md` 未发现真实 key，README/使用说明书仍有 LongCat 旧文案但属于接手前未提交文档改动，未纳入 Phase 3.3 提交范围。
+
+### Phase 3.4 - 延迟修复（Codex companion）
+- **Status:** complete
+- **Branch:** `feat/consolidate-dual-region`
+- **Scope:** `bot/tasks/auto.py` 将战报最低本会人数下限降到 10、忙时段 feed 页数提高到 6、单轮播报上限提高到 30，并为死亡播报增加 fetched/new/broadcasted/skipped_by_region 日志；`bot/store/db.py` / `bot/store/repo.py` 增加 `event_broadcast_seen(kook_guild_id, region, event_id)` 持久去重；runtime seed 默认 EU/ASIA `battle_report_min_guild_players=10`；补充战报阈值、忙时段扩页、单轮 30 条和 SQLite region 去重测试。
+- **Tests:**
+  - `.venv/bin/python -m pytest tests/` → 226 passed
+  - `scripts/check.sh` → unittest 226 tests OK + `compileall bot scripts tests` OK
+  - `git diff --check` → OK
+- **Self-review:** `git diff -- bot/ai` 无输出，未越界修改 Phase 3.3；`rg "event_broadcast_seen|has_seen_event_broadcast|mark_event_broadcast_seen" bot tests` 显示 schema、repo API、auto 调用和测试均带 region；`git -C /Users/arm/Desktop/vscode/Albion-ASIA-kook status --short --branch` 只读检查显示参考仓已有脏文件，本阶段未写入 ASIA 仓；未启动真实 bot、未做 KOOK 活测，5 分钟内新击杀、夜间 10-19 人战报和线上日志频次下降留到 Phase 5 部署冒烟验证。

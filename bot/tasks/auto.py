@@ -39,14 +39,15 @@ BROADCAST_BUSY_INTERVAL_SEC = 60
 BROADCAST_INTERVAL_TOLERANCE_SEC = 0.5
 BROADCAST_BUSY_START = time(20, 0)
 BROADCAST_BUSY_END = time(0, 30)
-FEED_PAGES = 4  # 每轮拉的全局 feed 页数（51/页），覆盖轮询间隔内的事件量
-MAX_BROADCAST_PER_TICK = 15  # 控频，避免刷爆 KOOK 配额
+FEED_PAGES = 4  # 普通时段每轮拉的全局 feed 页数（51/页）
+BUSY_FEED_PAGES = 6  # 忙时段扩页，覆盖 20:00-00:30 的事件高峰
+MAX_BROADCAST_PER_TICK = 30  # 控频，避免刷爆 KOOK 配额
 BATTLE_REPORT_INTERVAL_MIN = 3
 ATTENDANCE_COLLECTOR_INTERVAL_MIN = 5
 HIGH_FAME_COLLECTOR_INTERVAL_MIN = 5
 LEADERBOARD_COLLECTOR_INTERVAL_HOURS = 12
 GOLD_PRICE_COLLECTOR_INTERVAL_MIN = 15
-BATTLE_REPORT_MIN_PLAYERS = 20
+BATTLE_REPORT_MIN_PLAYERS = 10
 BROADCAST_LARGE_FAME_THRESHOLD = 1_000_000
 BROADCAST_LARGE_LOSS_THRESHOLD = 10_000_000
 BATTLE_REPORT_START = None
@@ -115,6 +116,13 @@ def _death_broadcast_interval_seconds(now: datetime | None = None) -> int:
     if current >= BROADCAST_BUSY_START or current < BROADCAST_BUSY_END:
         return BROADCAST_BUSY_INTERVAL_SEC
     return BROADCAST_INTERVAL_SEC
+
+
+def _feed_pages(now: datetime | None = None) -> int:
+    current = (now or datetime.now()).time()
+    if current >= BROADCAST_BUSY_START or current < BROADCAST_BUSY_END:
+        return BUSY_FEED_PAGES
+    return FEED_PAGES
 
 
 def _should_run_death_broadcast(
@@ -191,7 +199,9 @@ def _candidate_mentions_guild(row: dict[str, Any], guild_name: str) -> bool:
     return False
 
 
-async def _fetch_event_feed_pages(gi: GameInfo) -> list[dict]:
+async def _fetch_event_feed_pages(
+    gi: GameInfo, *, now: datetime | None = None
+) -> list[dict]:
     async def fetch_page(offset: int) -> list[dict]:
         try:
             page = await gi.events(limit=51, offset=offset)
@@ -203,7 +213,7 @@ async def _fetch_event_feed_pages(gi: GameInfo) -> list[dict]:
             return []
         return [ev for ev in page if isinstance(ev, dict)]
 
-    offsets = range(0, FEED_PAGES * 51, 51)
+    offsets = range(0, _feed_pages(now) * 51, 51)
     pages = await asyncio.gather(*(fetch_page(offset) for offset in offsets))
     return [event for page in pages for event in page]
 
@@ -387,30 +397,64 @@ def register(
             return
         _last_death_broadcast_at = now
 
-        events = await _fetch_event_feed_pages(gi)
+        events = await _fetch_event_feed_pages(gi, now=now)
 
         if not _primed:
             for ev in events:
-                _remember(ev.get("EventId"))
+                eid = ev.get("EventId")
+                if not eid:
+                    continue
+                _remember(eid)
+                for agid, gb in targets.items():
+                    is_kill, is_death = classify(ev, agid)
+                    if not (is_kill or is_death):
+                        continue
+                    repo.mark_event_broadcast_seen(
+                        gb["kook_guild_id"], region, str(eid)
+                    )
             _primed = True
+            log.info(
+                "死亡播报首轮预热 region=%s fetched_events=%d new_events=0 broadcasted=0 skipped_by_region=0",
+                region,
+                len(events),
+            )
             return
 
         new_events = [ev for ev in events if ev.get("EventId") not in _seen]
         sent = 0
+        new_count = 0
+        skipped_by_region = 0
         for ev in sorted(new_events, key=lambda e: e.get("TimeStamp") or ""):  # 旧→新
-            _remember(ev.get("EventId"))
-            fame = ev.get("TotalVictimKillFame") or 0
+            eid = ev.get("EventId")
+            if not eid:
+                continue
+            matched_target = False
             for agid, gb in targets.items():
                 is_kill, is_death = classify(ev, agid)
                 if not (is_kill or is_death):
                     continue
+                matched_target = True
+                kgid = gb["kook_guild_id"]
+                if repo.has_seen_event_broadcast(kgid, region, str(eid)):
+                    _remember(eid)
+                    continue
+                new_count += 1
                 channel_id = _broadcast_channel_for_event(
                     gb, is_kill=is_kill, is_death=is_death
                 )
                 if not channel_id:
+                    _remember(eid)
                     continue
                 if sent >= MAX_BROADCAST_PER_TICK:
-                    log.info("播报达单轮上限 %d，其余下轮再发", MAX_BROADCAST_PER_TICK)
+                    log.info(
+                        "播报达单轮上限 %d，其余下轮再发 region=%s fetched_events=%d new_events=%d broadcasted=%d skipped_by_region=%d",
+                        MAX_BROADCAST_PER_TICK,
+                        region,
+                        len(events),
+                        new_count,
+                        sent,
+                        skipped_by_region,
+                    )
                     return
                 try:
                     channel = await bot.client.fetch_public_channel(channel_id)
@@ -425,6 +469,8 @@ def register(
                         channel,
                         region=region,
                     ):
+                        skipped_by_region += 1
+                        _remember(eid)
                         log.info(
                             "跳过非本区播报频道 guild=%s channel=%s name=%s",
                             gb.get("kook_guild_id"),
@@ -443,9 +489,21 @@ def register(
                         except Exception as exc:
                             log.warning("播报估值失败 event=%s: %s", ev.get("EventId"), exc)
                     await channel.send(kill_card(ev, is_kill, _is_large_broadcast(ev, est), est))
+                    repo.mark_event_broadcast_seen(kgid, region, str(eid))
+                    _remember(eid)
                     sent += 1
                 except Exception as exc:
                     log.warning("发播报失败: %s", exc)
+            if not matched_target:
+                _remember(eid)
+        log.info(
+            "死亡播报轮询完成 region=%s fetched_events=%d new_events=%d broadcasted=%d skipped_by_region=%d",
+            region,
+            len(events),
+            new_count,
+            sent,
+            skipped_by_region,
+        )
 
     @bot.task.add_cron(hour=4, minute=0)
     async def member_review():

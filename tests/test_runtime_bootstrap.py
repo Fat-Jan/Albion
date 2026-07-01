@@ -29,7 +29,7 @@ class RuntimeBootstrapTest(unittest.TestCase):
         self.assertEqual(row["kill_broadcast_channel_id"], "8415323442916410")
         self.assertEqual(row["death_broadcast_channel_id"], "3162690807846766")
         self.assertEqual(row["battle_report_channel_id"], "7532177792027984")
-        self.assertEqual(row["battle_report_min_guild_players"], 20)
+        self.assertEqual(row["battle_report_min_guild_players"], 10)
         self.assertEqual(row["member_change_channel_id"], "3626370873673494")
         self.assertEqual(row["kill_fame_threshold"], 100000)
 

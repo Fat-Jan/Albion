@@ -186,6 +186,47 @@ def mark_battle_report_seen(
         conn.close()
 
 
+# --- 击杀/阵亡播报去重 ---
+
+def has_seen_event_broadcast(
+    kook_guild_id: str, region: str, event_id: str | None = None
+) -> bool:
+    if event_id is None:
+        region, event_id = DEFAULT_REGION, region
+    conn = get_conn()
+    try:
+        row = conn.execute(
+            """
+            SELECT 1 FROM event_broadcast_seen
+            WHERE kook_guild_id=? AND region=? AND event_id=?
+            """,
+            (kook_guild_id, region, str(event_id)),
+        ).fetchone()
+        return row is not None
+    finally:
+        conn.close()
+
+
+def mark_event_broadcast_seen(
+    kook_guild_id: str, region: str, event_id: str | None = None
+) -> None:
+    if event_id is None:
+        region, event_id = DEFAULT_REGION, region
+    conn = get_conn()
+    try:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO event_broadcast_seen
+                (kook_guild_id, region, event_id)
+            VALUES (?, ?, ?)
+            """,
+            (kook_guild_id, region, str(event_id)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 # --- 出勤/前端只读缓存 ---
 
 def _utc_now() -> str:
