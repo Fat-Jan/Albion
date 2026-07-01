@@ -104,7 +104,6 @@ class WebAssetsTest(unittest.TestCase):
         for banned in (
             "KOOK_TOKEN",
             "AI_API_KEY",
-            "LONGCAT_API_KEY",
             "secret-token",
             "secret-ai-key",
             "token=",

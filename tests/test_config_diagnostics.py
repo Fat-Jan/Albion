@@ -53,9 +53,9 @@ class ConfigDiagnosticsTest(unittest.TestCase):
             key: os.environ.pop(key, None)
             for key in (
                 "AI_BASE_URL",
+                "AI_API_KEY",
                 "AI_MODEL",
                 "AI_MAX_OUTPUT_TOKENS",
-                "LONGCAT_API_KEY",
             )
         }
         old_values["PYTHON_DOTENV_DISABLED"] = os.environ.get("PYTHON_DOTENV_DISABLED")

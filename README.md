@@ -152,15 +152,14 @@ KOOK_BOT_MENTION_ALIASES=
 DB_PATH=data/bot.db
 LOG_LEVEL=INFO
 AI_ENABLED=false
-AI_BASE_URL=https://api.longcat.chat/openai
-AI_MODEL=LongCat-2.0-Preview
+AI_BASE_URL=https://token.sensenova.cn/v1
+AI_MODEL=deepseek-v4-flash
 AI_API_KEY=
-LONGCAT_API_KEY=
 AI_TIMEOUT_SEC=20
-AI_MAX_OUTPUT_TOKENS=800
+AI_MAX_OUTPUT_TOKENS=2000
 ```
 
-`KOOK_TOKEN` 是必填密钥。`KOOK_REGION_CODE` 决定频道前缀和消息响应作用域，欧服使用 `eu`。启用 AI 时使用 `AI_API_KEY` 或 `LONGCAT_API_KEY`，前者优先。`KOOK_BOT_MENTION_ALIASES` 用来配置 `@机器人` 自然语言入口额外可识别的显示名别名，默认留空；多个别名用英文逗号分隔。密钥不要提交到 Git。
+`KOOK_TOKEN` 是必填密钥。`KOOK_REGION_CODE` 决定频道前缀和消息响应作用域，欧服使用 `eu`。启用 AI 时配置 `AI_API_KEY`。`KOOK_BOT_MENTION_ALIASES` 用来配置 `@机器人` 自然语言入口额外可识别的显示名别名，默认留空；多个别名用英文逗号分隔。密钥不要提交到 Git。
 
 默认配置面向欧服。切区时需同时切 `KOOK_REGION_CODE`、官方 gameinfo、AODP、AlbionBB API、AlbionBB 网页和官方击杀板 server，避免频道、市场、战报和链接混区。如需切回亚服：
 
@@ -324,7 +323,7 @@ Inventory 背包物品不计入补装金额。
 
 ## AI 辅助
 
-AI 走 LongCat/OpenAI 兼容接口，默认关闭。开启后可用 `/战报 [日期]`、`/助手 <问题>`、`/补装解释 <申请号>`，也可以在频道里 `@机器人` 输入自然语言让机器人调用白名单内的只读动作，并会自动出现在补装审核卡和自动 ZvZ 战报卡里。
+AI 走 SenseNova/OpenAI 兼容接口，默认关闭。开启后可用 `/战报 [日期]`、`/助手 <问题>`、`/补装解释 <申请号>`，也可以在频道里 `@机器人` 输入自然语言让机器人调用白名单内的只读动作，并会自动出现在补装审核卡和自动 ZvZ 战报卡里。
 
 AI 只作为辅助说明层：可以总结战斗记录、解释补装异常、生成新手命令引导、回答白名单只读查询。`/战报` 默认总结最近战役；`/战报 6-15`、`/战报 6月15`、`/战报 2026-06-15`、自然语言里的“昨晚战报”“昨晚的战役”“6-15 晚上的战役”会按北京时间目标日 14:30 到次日 05:00 的 ZvZ 夜间窗口过滤战役。`@机器人` 当前只会分发到现有只读路径：`/战报`、`/补装解释`、`/战绩`、`/估值`、`/战役`、`/物价`、`/金价`、`/榜单` 或 `/助手` 的只读白名单；显示名别名可通过 `KOOK_BOT_MENTION_ALIASES` 配置。`/助手` 当前白名单包括本人绑定状态、本人最近击杀/阵亡、本人补装进度、补装队列概况（管理员/补装审核员）和频道配置概况（管理员）。自动 ZvZ 战报摘要只基于战报事实包生成，补装审核提示只基于补装申请和估值事实包生成。
 

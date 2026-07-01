@@ -3,7 +3,7 @@
 ## 三大用户诉求速览
 
 1. **合仓**:OpenDeploy 现支持托管数据库+Redis,想把 EU/ASIA 双仓合成一个 project,靠数据库区分 region,省配额
-2. **换 AI**:LongCat 已停止免费,换商汤 `token.sensenova.cn/v1`,key 已由主 agent 探针验证,计划文件不记录原文或前缀
+2. **换 AI**:旧 AI 服务已停止免费,换商汤 `token.sensenova.cn/v1`,key 已由主 agent 探针验证,计划文件不记录原文或前缀
 3. **修延迟**:击杀/阵亡在 KOOK 延迟 5-10 分钟;夜间战报常静默
 
 ## 用户已拍板的三个关键点
@@ -87,7 +87,7 @@ curl -sS -X POST https://token.sensenova.cn/v1/chat/completions \
 
 **踩坑**:
 - 直接调 `https://token.sensenova.cn/v1` 根路径 `POST` 返回 `Forbidden`(要走 `/chat/completions`)
-- 用 `LongCat-2.0-Preview` model ID 返回 `model is not found`(废弃了)
+- 用 `旧 AI 模型` model ID 返回 `model is not found`(废弃了)
 - 商汤官网另有一个 `https://api.sensenova.cn/v1/llm/chat-completions` 是自研协议路径,**不是我们要用的**;`token.sensenova.cn/v1` 才是 OpenAI 兼容
 
 ---
@@ -213,7 +213,7 @@ def _effective_battle_report_min_guild_players(guild_binding: dict) -> int:
 | Issue | Resolution |
 |-------|------------|
 | SenseNova 根路径返回 Forbidden | 用 `/v1/chat/completions` 完整路径 |
-| `LongCat-2.0-Preview` model 商汤没有 | 换 `deepseek-v4-flash` |
+| `旧 AI 模型` model 商汤没有 | 换 `deepseek-v4-flash` |
 
 ## Resources
 
@@ -622,16 +622,16 @@ all_guild_bindings 加 region: str | None = None 关键字。
 ### Codex #3 - Phase 3.3 AI 换商汤(轻改)
 
 ```
-# Task: 把 AI 从 LongCat 换到商汤 deepseek-v4-flash
+# Task: 把 AI 从 OpenAI 兼容旧 AI 服务 换到商汤 deepseek-v4-flash
 
 ## Context
-LongCat 免费停止,商汤 token.sensenova.cn/v1 完全 OpenAI 兼容,主 agent 已探针成功。
+旧 AI 服务免费停止,商汤 token.sensenova.cn/v1 完全 OpenAI 兼容,主 agent 已探针成功。
 详见 .planning/2026-07-02-consolidate-eu-asia-bot/findings.md
 
 ## Changes
 1. bot/config.py:
-   - AI_BASE_URL 默认值:"https://token.sensenova.cn/v1"(原 "https://api.longcat.chat/openai")
-   - AI_MODEL 默认值:"deepseek-v4-flash"(原 "LongCat-2.0-Preview")
+   - AI_BASE_URL 默认值:"https://token.sensenova.cn/v1"(原 "旧 AI endpoint")
+   - AI_MODEL 默认值:"deepseek-v4-flash"(原 "旧 AI 模型")
    - AI_MAX_OUTPUT_TOKENS 默认值:2000(原 800,给 reasoning_content 留空间)
 2. bot/ai/client.py:
    - 检查 chat_completions_url:base_url 结尾 /v1 时不再追加 /v1,验证现有逻辑

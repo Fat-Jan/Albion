@@ -1,7 +1,7 @@
 # Task Plan: 合并欧服/亚服 Bot + 换商汤 AI + 修复延迟
 
 ## Goal
-把 `Albion-EU-kook` 和 `Albion-ASIA-kook` 两个仓合并成单容器、单进程、双 bot 实例的部署形态,继续用 SQLite(不引入 Postgres/MySQL/MongoDB/Redis,数据量太小、单进程无并发需求);亚服合并顺便升级到欧服的 M7 全套(出勤/collectors/web dashboard);AI 模块从已停止免费的 LongCat 迁移到商汤 `deepseek-v4-flash`;修复击杀/阵亡播报 5-10 分钟延迟和夜间战报静默问题。
+把 `Albion-EU-kook` 和 `Albion-ASIA-kook` 两个仓合并成单容器、单进程、双 bot 实例的部署形态,继续用 SQLite(不引入 Postgres/MySQL/MongoDB/Redis,数据量太小、单进程无并发需求);亚服合并顺便升级到欧服的 M7 全套(出勤/collectors/web dashboard);AI 模块从已停止免费的 OpenAI 兼容旧 AI 服务 迁移到商汤 `deepseek-v4-flash`;修复击杀/阵亡播报 5-10 分钟延迟和夜间战报静默问题。
 
 ## Current Phase
 Phase 2 已定稿 → 待用户派 codex 执行 Phase 3.1/3.2/3.3/3.4。
@@ -59,7 +59,7 @@ Phase 2 已定稿 → 待用户派 codex 执行 Phase 3.1/3.2/3.3/3.4。
   - `AI_API_KEY=sk-xxx`(实际值不入 git,只写 example 占位)
   - `AI_MODEL=deepseek-v4-flash`(推荐:1M context / 中文强 / 免费 / 支持 tools;备选 `glm-5.2` 长上下文更强但推理慢)
 - [ ] `bot/ai/client.py`:确认 `chat_completions_url` 逻辑对 base_url 结尾 `/v1` 的处理无 bug(现有代码已支持,验证一下)
-- [ ] `bot/config.py`:`AI_BASE_URL` 默认值改成 `https://token.sensenova.cn/v1`(原来是 `https://api.longcat.chat/openai`)
+- [ ] `bot/config.py`:`AI_BASE_URL` 默认值改成 `https://token.sensenova.cn/v1`(原来是 `旧 AI endpoint`)
 - [ ] `bot/ai/service.py`:`deepseek-v4-flash` 支持 reasoning,响应会带 `reasoning_content` 字段,现有 `data["choices"][0]["message"]["content"]` 提取路径不变,但要单测确认长 reasoning 不会撑爆 `AI_MAX_OUTPUT_TOKENS=800`;可能需要提高到 2000
 - [ ] 现网 `.env`:两个远端(EU/ASIA)分别 rewrite `AI_BASE_URL/AI_API_KEY/AI_MODEL`,重启服务
 - [ ] tests:新增 `tests/test_ai_sensenova.py`,`MockTransport` 返回带 `reasoning_content` 的响应,验证只取 `content`

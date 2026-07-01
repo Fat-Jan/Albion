@@ -85,9 +85,9 @@ class AIClientTest(unittest.IsolatedAsyncioTestCase):
 
         client = AIClient(
             AIClientConfig(
-                base_url="https://api.longcat.chat/openai",
+                base_url="https://openai-compatible.example/openai",
                 api_key="test-key",
-                model="longcat-test",
+                model="compat-test",
                 timeout=1.0,
                 max_output_tokens=120,
             ),
@@ -102,7 +102,7 @@ class AIClientTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(text, "战报摘要")
         self.assertEqual(requests[0].url.path, "/openai/v1/chat/completions")
         self.assertEqual(requests[0].headers["authorization"], "Bearer test-key")
-        self.assertIn(b"longcat-test", requests[0].content)
+        self.assertIn(b"compat-test", requests[0].content)
 
     async def test_ai_client_uses_sensenova_v1_url_and_ignores_reasoning_content(self):
         requests = []
@@ -793,5 +793,5 @@ def httpx_response(payload):
 
     import httpx
 
-    request = httpx.Request("POST", "https://api.longcat.chat/openai/v1/chat/completions")
+    request = httpx.Request("POST", "https://openai-compatible.example/openai/v1/chat/completions")
     return httpx.Response(200, json=payload, request=request)
