@@ -61,3 +61,15 @@
   - `git diff --check` → OK
 - **Migration probe:** 临时 SQLite 连续 `init_db()` 3 次、分别 seed `eu` / `asia`、再重复 `init_db()` 2 次后，`SELECT region, COUNT(*) FROM guild_binding GROUP BY region` 返回 `asia:1,eu:1`；关键表 PK 复查为 `guild_binding(kook_guild_id,region)`、`player_binding(kook_user_id,kook_guild_id,region)`、`battle_snapshot(kook_guild_id,region,battle_id)`、`battle_report_seen(kook_guild_id,region,battle_id)`、`high_fame_event(kook_guild_id,region,event_id)`、`collector_cursor(name,kook_guild_id,region)`。
 - **Self-review:** `git diff -- bot/ai` 无输出；`rg "contextvars|global REGION|CURRENT_REGION" bot` 无输出；未改 Phase 3.4 延迟参数和 `_seen`/`event_broadcast_seen` 策略，`BATTLE_REPORT_MIN_PLAYERS=20`、`MAX_BROADCAST_PER_TICK=15`、`FEED_PAGES=4` 仍保持原值。本阶段未启动真实 bot、未做 KOOK `/ping` 活测，真实双 token 日志和频道响应留到 Phase 5 部署冒烟。
+
+### Phase 3.3 - AI 迁移到商汤（Codex companion）
+- **Status:** complete
+- **Branch:** `feat/consolidate-dual-region`
+- **Scope:** `bot/config.py` 默认 AI provider 改为 SenseNova OpenAI-compatible endpoint：`AI_BASE_URL=https://token.sensenova.cn/v1`、`AI_MODEL=deepseek-v4-flash`、`AI_MAX_OUTPUT_TOKENS=2000`；`.env.example` 更新为商汤占位配置并保留 `LONGCAT_API_KEY` 旧环境兼容；`bot/ai/client.py` / `bot/ai/__init__.py` 去除 LongCat 默认文案；新增 `tests/test_ai_sensenova.py`，并补充配置默认值测试。
+- **TDD notes:** 目标测试首次运行时 `test_ai_defaults_use_sensenova_deepseek_flash` 失败，实际默认仍为 `https://api.longcat.chat/openai`；生产改动后目标验证 `.venv/bin/python -m pytest tests/test_config_diagnostics.py::ConfigDiagnosticsTest::test_ai_defaults_use_sensenova_deepseek_flash tests/test_ai_sensenova.py tests/test_ai_module.py::AIClientTest::test_ai_client_uses_sensenova_v1_url_and_ignores_reasoning_content` → 3 passed。
+- **Tests:**
+  - `.venv/bin/python -m pytest tests/` → 222 passed
+  - `scripts/check.sh` → 222 tests OK + `compileall bot scripts tests` OK
+  - `git diff --check` → OK
+- **External probe:** 当前 shell 未注入 `AI_API_KEY`，未读取 `.env` 密钥，真实 `curl https://token.sensenova.cn/v1/chat/completions` 留到 Phase 5 env 注入后执行。代码级 MockTransport 已验证 base_url 结尾 `/v1` 时请求路径为 `/v1/chat/completions`，且只返回 `message.content`、忽略 `reasoning_content`。
+- **Self-review:** `git diff -- bot/store bot/tasks/auto.py` 无输出，未越界修改 Phase 3.2/3.4 文件；`rg "sk-OTlM|LongCat-2.0|api\.longcat|AI_BASE_URL|AI_MODEL|AI_MAX_OUTPUT" .env.example bot tests README.md 使用说明书.md` 未发现真实 key，README/使用说明书仍有 LongCat 旧文案但属于接手前未提交文档改动，未纳入 Phase 3.3 提交范围。

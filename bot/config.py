@@ -157,11 +157,11 @@ def _int_env(key: str, default: int) -> int:
 
 
 AI_ENABLED = _bool_env("AI_ENABLED", False)
-AI_BASE_URL = os.getenv("AI_BASE_URL", "https://api.longcat.chat/openai").rstrip("/")
+AI_BASE_URL = os.getenv("AI_BASE_URL", "https://token.sensenova.cn/v1").rstrip("/")
 AI_API_KEY = (os.getenv("AI_API_KEY") or os.getenv("LONGCAT_API_KEY") or "").strip()
-AI_MODEL = os.getenv("AI_MODEL", "LongCat-2.0-Preview").strip()
+AI_MODEL = os.getenv("AI_MODEL", "deepseek-v4-flash").strip()
 AI_TIMEOUT_SEC = _float_env("AI_TIMEOUT_SEC", 20.0)
-AI_MAX_OUTPUT_TOKENS = _int_env("AI_MAX_OUTPUT_TOKENS", 800)
+AI_MAX_OUTPUT_TOKENS = _int_env("AI_MAX_OUTPUT_TOKENS", 2000)
 
 
 def require_token() -> str:

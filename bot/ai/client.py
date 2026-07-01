@@ -1,4 +1,4 @@
-"""OpenAI 兼容 AI 客户端。LongCat base_url 用 https://api.longcat.chat/openai。"""
+"""OpenAI 兼容 AI 客户端。SenseNova base_url 用 https://token.sensenova.cn/v1。"""
 from __future__ import annotations
 
 from dataclasses import dataclass

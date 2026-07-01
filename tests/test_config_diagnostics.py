@@ -48,6 +48,27 @@ class ConfigDiagnosticsTest(unittest.TestCase):
         )
         self.assertEqual(config.REGION_CONFIGS["asia"].killboard_server, "live_sgp")
 
+    def test_ai_defaults_use_sensenova_deepseek_flash(self):
+        old_values = {
+            key: os.environ.pop(key, None)
+            for key in (
+                "AI_BASE_URL",
+                "AI_MODEL",
+                "AI_MAX_OUTPUT_TOKENS",
+                "LONGCAT_API_KEY",
+            )
+        }
+        old_values["PYTHON_DOTENV_DISABLED"] = os.environ.get("PYTHON_DOTENV_DISABLED")
+        os.environ["PYTHON_DOTENV_DISABLED"] = "true"
+        self.addCleanup(self._restore_env, old_values)
+
+        reloaded = importlib.reload(config)
+        self.addCleanup(importlib.reload, config)
+
+        self.assertEqual(reloaded.AI_BASE_URL, "https://token.sensenova.cn/v1")
+        self.assertEqual(reloaded.AI_MODEL, "deepseek-v4-flash")
+        self.assertEqual(reloaded.AI_MAX_OUTPUT_TOKENS, 2000)
+
     def test_legacy_single_value_env_is_eu_fallback_only(self):
         keys = (
             "KOOK_TOKEN_EU",

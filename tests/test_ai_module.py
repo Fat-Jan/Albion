@@ -104,6 +104,45 @@ class AIClientTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(requests[0].headers["authorization"], "Bearer test-key")
         self.assertIn(b"longcat-test", requests[0].content)
 
+    async def test_ai_client_uses_sensenova_v1_url_and_ignores_reasoning_content(self):
+        requests = []
+
+        async def transport_handler(request):
+            requests.append(request)
+            return httpx_response(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "最终摘要",
+                                "reasoning_content": "内部推理不应返回给用户",
+                            }
+                        }
+                    ]
+                }
+            )
+
+        client = AIClient(
+            AIClientConfig(
+                base_url="https://token.sensenova.cn/v1",
+                api_key="test-key",
+                model="deepseek-v4-flash",
+                timeout=1.0,
+                max_output_tokens=2000,
+            ),
+            transport=transport_handler,
+        )
+
+        try:
+            text = await client.complete([{"role": "user", "content": "总结"}])
+        finally:
+            await client.aclose()
+
+        self.assertEqual(text, "最终摘要")
+        self.assertNotIn("内部推理", text)
+        self.assertEqual(requests[0].url.path, "/v1/chat/completions")
+        self.assertIn(b"deepseek-v4-flash", requests[0].content)
+
 
 class AIServiceTest(unittest.IsolatedAsyncioTestCase):
     async def test_disabled_service_returns_empty_without_calling_client(self):
