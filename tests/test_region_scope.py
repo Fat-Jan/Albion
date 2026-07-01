@@ -1,4 +1,3 @@
-import os
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -14,6 +13,18 @@ class RegionScopeTest(unittest.IsolatedAsyncioTestCase):
     def test_eu_default_prefixes_regear_channel_names(self):
         self.assertEqual(region_scope.region_code(), "eu")
         self.assertEqual(region_scope.scoped_name("📥补装申请"), "eu-📥补装申请")
+
+    def test_region_helpers_accept_explicit_region(self):
+        self.assertEqual(region_scope.scoped_name("📥补装申请", region="asia"), "asia-📥补装申请")
+        self.assertTrue(
+            region_scope.channel_name_matches_region("asia-📥补装申请", region="asia")
+        )
+        self.assertFalse(
+            region_scope.channel_name_matches_region("eu-📥补装申请", region="asia")
+        )
+
+    def test_region_scope_no_longer_infers_region_from_config_urls(self):
+        self.assertFalse(hasattr(region_scope, "_infer_region_from_config"))
 
     def test_channel_name_must_match_current_region_prefix(self):
         self.assertTrue(region_scope.channel_name_matches_region("eu-📥补装申请"))
@@ -61,19 +72,6 @@ class RegionScopeTest(unittest.IsolatedAsyncioTestCase):
                 SimpleNamespace(name="eu-审批频道"),
             )
         )
-
-    def test_region_code_can_be_overridden_for_asia(self):
-        old = os.environ.get("KOOK_REGION_CODE")
-        os.environ["KOOK_REGION_CODE"] = "asia"
-        try:
-            self.assertEqual(region_scope.region_code(), "asia")
-            self.assertTrue(region_scope.channel_name_matches_region("asia-📥补装申请"))
-            self.assertFalse(region_scope.channel_name_matches_region("eu-📥补装申请"))
-        finally:
-            if old is None:
-                os.environ.pop("KOOK_REGION_CODE", None)
-            else:
-                os.environ["KOOK_REGION_CODE"] = old
 
     def test_new_channel_cutoff_excludes_channels_before_june_2026(self):
         old_channel = SimpleNamespace(

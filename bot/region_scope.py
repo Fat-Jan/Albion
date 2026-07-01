@@ -1,7 +1,6 @@
 """区服频道作用域：让双 bot 只响应自己前缀的 KOOK 频道。"""
 from __future__ import annotations
 
-import os
 from datetime import UTC, datetime
 
 from bot import config
@@ -11,15 +10,13 @@ REGION_PREFIXES = ("eu", "asia")
 
 
 def region_code() -> str:
-    raw = os.getenv("KOOK_REGION_CODE", "").strip().lower()
-    if raw:
-        return _normalize_region(raw)
-    return _infer_region_from_config()
+    """Deprecated compatibility shim; new code should pass region explicitly."""
+    return config.DEFAULT_REGION_CODE
 
 
-def scoped_name(name: str) -> str:
+def scoped_name(name: str, *, region: str | None = None) -> str:
     base = str(name or "").strip()
-    prefix = f"{region_code()}-"
+    prefix = f"{_resolve_region(region)}-"
     if base.startswith(prefix):
         return base
     return f"{prefix}{strip_known_prefix(base)}"
@@ -34,23 +31,27 @@ def strip_known_prefix(name: str) -> str:
     return text
 
 
-def channel_name_matches_region(name: str | None) -> bool:
-    return str(name or "").strip().lower().startswith(f"{region_code()}-")
+def channel_name_matches_region(name: str | None, *, region: str | None = None) -> bool:
+    return str(name or "").strip().lower().startswith(f"{_resolve_region(region)}-")
 
 
-def channel_matches_region(channel) -> bool:
-    return channel_name_matches_region(getattr(channel, "name", None))
+def channel_matches_region(channel, *, region: str | None = None) -> bool:
+    return channel_name_matches_region(getattr(channel, "name", None), region=region)
 
 
-def channel_allowed(channel, *, allow_bootstrap: bool = False) -> bool:
-    if channel_matches_region(channel):
+def channel_allowed(channel, *, allow_bootstrap: bool = False, region: str | None = None) -> bool:
+    if channel_matches_region(channel, region=region):
         return True
     return False
 
 
-def should_process_message(msg, *, allow_bootstrap: bool = False) -> bool:
+def should_process_message(
+    msg, *, allow_bootstrap: bool = False, region: str | None = None
+) -> bool:
     channel = getattr(getattr(msg, "ctx", None), "channel", None)
-    return channel_allowed(channel, allow_bootstrap=allow_bootstrap)
+    return channel_allowed(
+        channel, allow_bootstrap=allow_bootstrap, region=region or _message_region(msg)
+    )
 
 
 def is_channel_created_in_scope(channel) -> bool:
@@ -60,8 +61,8 @@ def is_channel_created_in_scope(channel) -> bool:
     return created_at >= CHANNEL_CUTOFF
 
 
-def is_reusable_region_channel(channel) -> bool:
-    if not channel_matches_region(channel):
+def is_reusable_region_channel(channel, *, region: str | None = None) -> bool:
+    if not channel_matches_region(channel, region=region):
         return False
     created_at = _parse_created_at(getattr(channel, "created_at", None))
     return created_at is None or created_at >= CHANNEL_CUTOFF
@@ -84,12 +85,29 @@ def configured_channel_matches_region(
     channel_id: object,
     fields: tuple[str, ...],
     channel,
+    *,
+    region: str | None = None,
 ) -> bool:
     if not channel_id_in_binding(binding, channel_id, fields):
         return False
-    if channel_matches_region(channel):
+    if channel_matches_region(channel, region=region):
         return True
     return getattr(channel, "name", None) is None
+
+
+def _resolve_region(region: str | None = None) -> str:
+    if region:
+        return _normalize_region(region)
+    return region_code()
+
+
+def _message_region(msg) -> str | None:
+    ctx = getattr(msg, "ctx", None)
+    bot = getattr(ctx, "bot", None) or getattr(msg, "bot", None)
+    raw = getattr(bot, "_region", None) or getattr(bot, "region", None)
+    if raw:
+        return _normalize_region(raw)
+    return None
 
 
 def _normalize_region(raw: str) -> str:
@@ -99,21 +117,6 @@ def _normalize_region(raw: str) -> str:
     if text in {"asia", "as", "east", "sgp", "live_sgp"}:
         return "asia"
     return text
-
-
-def _infer_region_from_config() -> str:
-    probes = " ".join(
-        (
-            config.GAMEINFO_BASE,
-            config.AODP_BASE,
-            config.ALBIONBB_BASE,
-            config.ALBIONBB_WEB_BASE,
-            config.KILLBOARD_SERVER,
-        )
-    ).lower()
-    if any(token in probes for token in ("gameinfo-sgp", "/asia", "east.", "live_sgp")):
-        return "asia"
-    return "eu"
 
 
 def _parse_created_at(raw) -> datetime | None:
