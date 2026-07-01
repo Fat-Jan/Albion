@@ -72,7 +72,7 @@
   - `scripts/check.sh` → 222 tests OK + `compileall bot scripts tests` OK
   - `git diff --check` → OK
 - **External probe:** 当前 shell 未注入 `AI_API_KEY`，未读取 `.env` 密钥，真实 `curl https://token.sensenova.cn/v1/chat/completions` 留到 Phase 5 env 注入后执行。代码级 MockTransport 已验证 base_url 结尾 `/v1` 时请求路径为 `/v1/chat/completions`，且只返回 `message.content`、忽略 `reasoning_content`。
-- **Self-review:** `git diff -- bot/store bot/tasks/auto.py` 无输出，未越界修改 Phase 3.2/3.4 文件；`rg "sk-OTlM|LongCat-2.0|api\.longcat|AI_BASE_URL|AI_MODEL|AI_MAX_OUTPUT" .env.example bot tests README.md 使用说明书.md` 未发现真实 key，README/使用说明书仍有 LongCat 旧文案但属于接手前未提交文档改动，未纳入 Phase 3.3 提交范围。
+- **Self-review:** `git diff -- bot/store bot/tasks/auto.py` 无输出，未越界修改 Phase 3.2/3.4 文件；已扫描计划、示例环境和代码中的 secret-like 字符串，未发现真实 key，README/使用说明书仍有 LongCat 旧文案但属于接手前未提交文档改动，未纳入 Phase 3.3 提交范围。
 
 ### Phase 3.4 - 延迟修复（Codex companion）
 - **Status:** complete
