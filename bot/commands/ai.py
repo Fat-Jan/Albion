@@ -207,28 +207,31 @@ def _message_mentions_bot(
     )
 
 
-def register(bot: Bot, ai_service: AIService, gi: GameInfo, mk: Market) -> None:
+def register(
+    bot: Bot, ai_service: AIService, gi: GameInfo, mk: Market, *, region: str = "eu"
+) -> None:
     router = AIRouter(ai_service, gameinfo=gi)
-    bot_id = config.token_runtime_info()["bot_id"]
+    region_cfg = config.REGION_CONFIGS.get(region)
+    bot_id = config.token_runtime_info(region_cfg.kook_token if region_cfg else "")["bot_id"]
 
     @bot.command(name="助手")
     async def assistant_cmd(msg: Message, *args):
-        if not region_scope.should_process_message(msg):
+        if not region_scope.should_process_message(msg, region=region):
             return
         question = " ".join(args).strip()
-        await _reply_assistant(msg, router, question)
+        await _reply_assistant(msg, router, question, region=region)
 
     @bot.command(name="战报")
     async def battle_report_cmd(msg: Message, *args):
-        if not region_scope.should_process_message(msg):
+        if not region_scope.should_process_message(msg, region=region):
             return
-        await _reply_battle_report(msg, ai_service, gi, args)
+        await _reply_battle_report(msg, ai_service, gi, args, region=region)
 
     @bot.command(name="补装解释")
     async def regear_explain_cmd(msg: Message, *args):
-        if not region_scope.should_process_message(msg):
+        if not region_scope.should_process_message(msg, region=region):
             return
-        await _reply_regear_explain(msg, ai_service, gi, mk, args)
+        await _reply_regear_explain(msg, ai_service, gi, mk, args, region=region)
 
     @bot.on_message()
     async def mention_assistant(msg: Message):
@@ -241,7 +244,7 @@ def register(bot: Bot, ai_service: AIService, gi: GameInfo, mk: Market) -> None:
             return
         if not _message_mentions_bot(msg, bot_id):
             return
-        if not region_scope.should_process_message(msg):
+        if not region_scope.should_process_message(msg, region=region):
             return
         question = _strip_bot_mention(msg.content, bot_id)
         intent = _parse_mention_intent(question)
@@ -254,19 +257,19 @@ def register(bot: Bot, ai_service: AIService, gi: GameInfo, mk: Market) -> None:
             author_id,
         )
         if intent.action == "battle_report":
-            await _reply_battle_report(msg, ai_service, gi, intent.args)
+            await _reply_battle_report(msg, ai_service, gi, intent.args, region=region)
             return
         if intent.action == "regear_explain":
-            await _reply_regear_explain(msg, ai_service, gi, mk, intent.args)
+            await _reply_regear_explain(msg, ai_service, gi, mk, intent.args, region=region)
             return
         if intent.action == "stats":
-            await query_cmds.reply_stats(msg, gi, intent.args)
+            await query_cmds.reply_stats(msg, gi, intent.args, region=region)
             return
         if intent.action == "valuation":
-            await query_cmds.reply_valuation(msg, gi, mk, intent.args)
+            await query_cmds.reply_valuation(msg, gi, mk, intent.args, region=region)
             return
         if intent.action == "battles":
-            await query_cmds.reply_battles(msg, gi)
+            await query_cmds.reply_battles(msg, gi, region=region)
             return
         if intent.action == "price":
             await query_cmds.reply_price(msg, mk, intent.args)
@@ -275,13 +278,15 @@ def register(bot: Bot, ai_service: AIService, gi: GameInfo, mk: Market) -> None:
             await query_cmds.reply_gold(msg, mk)
             return
         if intent.action == "rank":
-            await query_cmds.reply_rank(msg, gi, intent.args)
+            await query_cmds.reply_rank(msg, gi, intent.args, region=region)
             return
-        await _reply_assistant(msg, router, intent.question)
+        await _reply_assistant(msg, router, intent.question, region=region)
 
 
-async def _reply_assistant(msg: Message, router: AIRouter, question: str) -> None:
-    binding = repo.get_guild_binding(msg.ctx.guild.id)
+async def _reply_assistant(
+    msg: Message, router: AIRouter, question: str, *, region: str = "eu"
+) -> None:
+    binding = repo.get_guild_binding(msg.ctx.guild.id, region)
     can_manage_regear = False
     can_manage_guild = False
     try:
@@ -305,9 +310,14 @@ async def _reply_assistant(msg: Message, router: AIRouter, question: str) -> Non
 
 
 async def _reply_battle_report(
-    msg: Message, ai_service: AIService, gi: GameInfo, args: tuple[object, ...]
+    msg: Message,
+    ai_service: AIService,
+    gi: GameInfo,
+    args: tuple[object, ...],
+    *,
+    region: str = "eu",
 ) -> None:
-    binding = repo.get_guild_binding(msg.ctx.guild.id)
+    binding = repo.get_guild_binding(msg.ctx.guild.id, region)
     if not binding:
         await msg.reply("本服还没绑定公会，请管理员先 /绑定公会。")
         return
@@ -352,6 +362,8 @@ async def _reply_regear_explain(
     gi: GameInfo,
     mk: Market,
     args: tuple[object, ...],
+    *,
+    region: str = "eu",
 ) -> None:
     if not args or not str(args[0]).isdigit():
         await msg.reply("用法：`/补装解释 <申请号>`")
@@ -362,7 +374,7 @@ async def _reply_regear_explain(
         await msg.reply("没有找到这条补装申请。")
         return
     if rr.get("kook_user_id") != msg.author.id:
-        gbind = repo.get_guild_binding(msg.ctx.guild.id)
+        gbind = repo.get_guild_binding(msg.ctx.guild.id, region)
         if not await regear_cmds._can_manage_regear(msg.ctx.guild, msg.author, gbind):
             await msg.reply("⛔ 只有申请人、管理员或补装审核身份组可以查看补装解释。")
             return

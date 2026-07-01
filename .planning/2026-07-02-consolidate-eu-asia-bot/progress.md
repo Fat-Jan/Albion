@@ -50,3 +50,14 @@
   - `.venv/bin/python -m pytest tests/` → 215 passed
   - `scripts/check.sh` → unittest 215 tests OK + compileall OK
 - **Self-review:** staged Phase 3.1 不改 `bot/store/*`、`bot/main.py`、`bot/ai/*`；`rg _infer_region_from_config bot tests .env.example` 无代码命中。当前工作区仍保留接手前 M7/OpenDeploy 未提交改动，未作为 Phase 3.1 范围处理。
+
+### Phase 3.2 - 数据模型 + 进程内双 bot（Codex companion）
+- **Status:** complete
+- **Branch:** `feat/consolidate-dual-region`
+- **Scope:** `bot/store/db.py` 增加 region-aware schema 和幂等迁移；`bot/store/repo.py`、commands、tasks、collectors 和 status API 按 region 显式过滤；`bot/main.py` 增加 `build_bots()`，每区独立 KOOK bot / Albion client，AIService 共享；补齐 EU M7 运行依赖的 attendance、collectors、web/status API 和测试文件。
+- **Tests:**
+  - `.venv/bin/python -m pytest tests/` → 219 passed
+  - `scripts/check.sh` → 219 tests OK + `compileall bot scripts tests` OK
+  - `git diff --check` → OK
+- **Migration probe:** 临时 SQLite 连续 `init_db()` 3 次、分别 seed `eu` / `asia`、再重复 `init_db()` 2 次后，`SELECT region, COUNT(*) FROM guild_binding GROUP BY region` 返回 `asia:1,eu:1`；关键表 PK 复查为 `guild_binding(kook_guild_id,region)`、`player_binding(kook_user_id,kook_guild_id,region)`、`battle_snapshot(kook_guild_id,region,battle_id)`、`battle_report_seen(kook_guild_id,region,battle_id)`、`high_fame_event(kook_guild_id,region,event_id)`、`collector_cursor(name,kook_guild_id,region)`。
+- **Self-review:** `git diff -- bot/ai` 无输出；`rg "contextvars|global REGION|CURRENT_REGION" bot` 无输出；未改 Phase 3.4 延迟参数和 `_seen`/`event_broadcast_seen` 策略，`BATTLE_REPORT_MIN_PLAYERS=20`、`MAX_BROADCAST_PER_TICK=15`、`FEED_PAGES=4` 仍保持原值。本阶段未启动真实 bot、未做 KOOK `/ping` 活测，真实双 token 日志和频道响应留到 Phase 5 部署冒烟。

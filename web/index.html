@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Albion KOOK Ops</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell" id="dashboard-shell">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <span class="brand-mark" aria-hidden="true">EU</span>
+          <div class="brand-copy">
+            <p class="eyebrow">Albion EU KOOK</p>
+            <h1>Ops Dashboard</h1>
+          </div>
+        </div>
+        <div class="ops-summary" aria-label="dashboard summary">
+          <div>
+            <span>Collectors</span>
+            <strong id="summary-collectors">-</strong>
+          </div>
+          <div>
+            <span>Signals</span>
+            <strong id="summary-signals">-</strong>
+          </div>
+          <div>
+            <span>Guilds</span>
+            <strong id="summary-guilds">-</strong>
+          </div>
+        </div>
+        <div class="actions" id="invite-actions"></div>
+      </header>
+
+      <section class="status-band" aria-label="runtime status">
+        <div id="status-health-card">
+          <span class="label">Health</span>
+          <strong><span class="pill" id="status-health">-</span></strong>
+          <span class="status-note" id="status-health-note">-</span>
+        </div>
+        <div>
+          <span class="label">Region</span>
+          <strong id="status-region">-</strong>
+        </div>
+        <div>
+          <span class="label">Version</span>
+          <strong id="status-version">-</strong>
+        </div>
+        <div>
+          <span class="label">Heartbeat</span>
+          <strong id="status-heartbeat">-</strong>
+        </div>
+        <div>
+          <span class="label">Last Task</span>
+          <strong id="status-task">-</strong>
+        </div>
+      </section>
+
+      <p class="notice" id="dashboard-notice" aria-live="polite" hidden></p>
+
+      <section class="grid">
+        <article class="panel wide">
+          <div class="panel-head">
+            <h2>Collectors</h2>
+            <button type="button" id="refresh-button" title="Refresh dashboard" aria-label="Refresh dashboard">
+              <svg class="refresh-icon" aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M20 12a8 8 0 1 1-2.34-5.66" />
+                <path d="M20 4v6h-6" />
+              </svg>
+              <span class="refresh-label">Refresh</span>
+            </button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Guild</th>
+                  <th>Status</th>
+                  <th>Last Run</th>
+                </tr>
+              </thead>
+              <tbody id="collector-rows"></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h2>Gold</h2>
+          </div>
+          <div id="gold-list" class="stack"></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h2>High Fame</h2>
+          </div>
+          <div id="event-list" class="stack"></div>
+        </article>
+
+        <article class="panel wide">
+          <div class="panel-head">
+            <h2>Leaderboards</h2>
+          </div>
+          <div id="leaderboard-list" class="leaderboards"></div>
+        </article>
+
+        <article class="panel wide">
+          <div class="panel-head">
+            <h2>Attendance Snapshot</h2>
+          </div>
+          <div id="attendance-list" class="stack"></div>
+        </article>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

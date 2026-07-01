@@ -29,6 +29,7 @@ from bot.albion import price_reference
 from bot.cards.battle_report_cards import battle_report_card
 from bot.cards.broadcast_cards import kill_card
 from bot.store import repo
+from bot.tasks import collectors
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +42,10 @@ BROADCAST_BUSY_END = time(0, 30)
 FEED_PAGES = 4  # 每轮拉的全局 feed 页数（51/页），覆盖轮询间隔内的事件量
 MAX_BROADCAST_PER_TICK = 15  # 控频，避免刷爆 KOOK 配额
 BATTLE_REPORT_INTERVAL_MIN = 3
+ATTENDANCE_COLLECTOR_INTERVAL_MIN = 5
+HIGH_FAME_COLLECTOR_INTERVAL_MIN = 5
+LEADERBOARD_COLLECTOR_INTERVAL_HOURS = 12
+GOLD_PRICE_COLLECTOR_INTERVAL_MIN = 15
 BATTLE_REPORT_MIN_PLAYERS = 20
 BROADCAST_LARGE_FAME_THRESHOLD = 1_000_000
 BROADCAST_LARGE_LOSS_THRESHOLD = 10_000_000
@@ -252,10 +257,10 @@ async def _battle_report_candidates(
     return candidates
 
 
-def _configured_battle_report_bindings() -> list[dict]:
+def _configured_battle_report_bindings(region: str = "eu") -> list[dict]:
     return [
         gb
-        for gb in repo.all_guild_bindings()
+        for gb in repo.all_guild_bindings(region=region)
         if gb.get("battle_report_channel_id") and gb.get("albion_guild_name")
     ]
 
@@ -291,10 +296,11 @@ async def _run_battle_report_tick(
     *,
     now: datetime | None = None,
     ai_service: AIService | None = None,
+    region: str = "eu",
 ) -> None:
     if not _should_run_battle_report(now):
         return
-    bindings = _configured_battle_report_bindings()
+    bindings = _configured_battle_report_bindings(region=region)
     if not bindings:
         return
 
@@ -313,7 +319,7 @@ async def _run_battle_report_tick(
             if not row.get("_guild_match") and not _candidate_mentions_guild(row, guild_name):
                 continue
             battle_id = _battle_candidate_id(row)
-            if not battle_id or repo.has_seen_battle_report(kgid, battle_id):
+            if not battle_id or repo.has_seen_battle_report(kgid, region, battle_id):
                 continue
             try:
                 detail = await gi.battle(battle_id)
@@ -332,6 +338,7 @@ async def _run_battle_report_tick(
                     gb["battle_report_channel_id"],
                     ("battle_report_channel_id",),
                     channel,
+                    region=region,
                 ):
                     log.info(
                         "跳过非本区战报频道 guild=%s channel=%s name=%s",
@@ -344,7 +351,7 @@ async def _run_battle_report_tick(
             except Exception as exc:
                 log.warning("推送战报失败 battle=%s guild=%s: %s", battle_id, guild_name, exc)
                 continue
-            repo.mark_battle_report_seen(kgid, battle_id)
+            repo.mark_battle_report_seen(kgid, region, battle_id)
 
 
 async def _ai_battle_report_summary(ai_service: AIService | None, report: dict) -> str:
@@ -357,13 +364,20 @@ async def _ai_battle_report_summary(ai_service: AIService | None, report: dict) 
         return ""
 
 
-def register(bot: Bot, gi: GameInfo, mk: Market, ai_service: AIService | None = None) -> None:
+def register(
+    bot: Bot,
+    gi: GameInfo,
+    mk: Market,
+    ai_service: AIService | None = None,
+    *,
+    region: str = "eu",
+) -> None:
     @bot.task.add_interval(seconds=BROADCAST_CHECK_INTERVAL_SEC)
     async def death_broadcast():
         global _last_death_broadcast_at, _primed
         targets = {
             gb["albion_guild_id"]: gb
-            for gb in repo.all_guild_bindings()
+            for gb in repo.all_guild_bindings(region=region)
             if _has_broadcast_target(gb)
         }
         if not targets:
@@ -409,6 +423,7 @@ def register(bot: Bot, gi: GameInfo, mk: Market, ai_service: AIService | None = 
                             "death_broadcast_channel_id",
                         ),
                         channel,
+                        region=region,
                     ):
                         log.info(
                             "跳过非本区播报频道 guild=%s channel=%s name=%s",
@@ -434,7 +449,7 @@ def register(bot: Bot, gi: GameInfo, mk: Market, ai_service: AIService | None = 
 
     @bot.task.add_cron(hour=4, minute=0)
     async def member_review():
-        for gb in repo.all_guild_bindings():
+        for gb in repo.all_guild_bindings(region=region):
             role = gb.get("member_role_id")
             if not role:
                 continue
@@ -450,7 +465,7 @@ def register(bot: Bot, gi: GameInfo, mk: Market, ai_service: AIService | None = 
                 continue  # 拉空可能是接口抽风，跳过避免误撤
 
             notify_id = _member_review_notify_channel(gb)
-            for pb in repo.list_player_bindings(kgid):
+            for pb in repo.list_player_bindings(kgid, region):
                 if pb["albion_player_id"] in member_ids:
                     continue
                 try:
@@ -458,7 +473,7 @@ def register(bot: Bot, gi: GameInfo, mk: Market, ai_service: AIService | None = 
                     await guild.revoke_role(pb["kook_user_id"], role)
                 except Exception as exc:
                     log.warning("退会撤组失败: %s", exc)
-                repo.delete_player_binding(pb["kook_user_id"], kgid)
+                repo.delete_player_binding(pb["kook_user_id"], kgid, region)
                 if notify_id:
                     try:
                         ch = await bot.client.fetch_public_channel(notify_id)
@@ -473,6 +488,7 @@ def register(bot: Bot, gi: GameInfo, mk: Market, ai_service: AIService | None = 
                                 "approval_channel_id",
                             ),
                             ch,
+                            region=region,
                         ):
                             log.info(
                                 "跳过非本区成员变动频道 guild=%s channel=%s name=%s",
@@ -509,4 +525,68 @@ def register(bot: Bot, gi: GameInfo, mk: Market, ai_service: AIService | None = 
 
     @bot.task.add_interval(minutes=BATTLE_REPORT_INTERVAL_MIN)
     async def battle_report():
-        await _run_battle_report_tick(bot, gi, gi.c, ai_service=ai_service)
+        await _run_battle_report_tick(bot, gi, gi.c, ai_service=ai_service, region=region)
+
+    @bot.task.add_interval(minutes=ATTENDANCE_COLLECTOR_INTERVAL_MIN)
+    async def attendance_battle_collector():
+        for gb in repo.all_guild_bindings(region=region):
+            if not gb.get("albion_guild_id"):
+                continue
+            try:
+                await collectors.collect_recent_battles_once(
+                    gi,
+                    gb,
+                    limit=BATTLE_REPORT_MIN_PLAYERS,
+                )
+            except Exception as exc:
+                log.warning(
+                    "出勤战斗采集失败 guild=%s: %s",
+                    gb.get("albion_guild_name"),
+                    exc,
+                )
+
+    @bot.task.add_cron(hour=5, minute=0)
+    async def attendance_member_collector():
+        for gb in repo.all_guild_bindings(region=region):
+            if not gb.get("albion_guild_id"):
+                continue
+            try:
+                await collectors.collect_guild_members_once(gi, gb)
+            except Exception as exc:
+                log.warning(
+                    "出勤成员采集失败 guild=%s: %s",
+                    gb.get("albion_guild_name"),
+                    exc,
+                )
+
+    @bot.task.add_interval(minutes=HIGH_FAME_COLLECTOR_INTERVAL_MIN)
+    async def high_fame_event_collector():
+        for gb in repo.all_guild_bindings(region=region):
+            if not gb.get("albion_guild_id"):
+                continue
+            try:
+                await collectors.collect_high_fame_events_once(
+                    gi,
+                    gb,
+                    fame_threshold=BROADCAST_LARGE_FAME_THRESHOLD,
+                )
+            except Exception as exc:
+                log.warning(
+                    "高声望事件采集失败 guild=%s: %s",
+                    gb.get("albion_guild_name"),
+                    exc,
+                )
+
+    @bot.task.add_interval(hours=LEADERBOARD_COLLECTOR_INTERVAL_HOURS)
+    async def fame_leaderboard_collector():
+        try:
+            await collectors.collect_fame_leaderboards_once(gi, region=region, limit=20)
+        except Exception as exc:
+            log.warning("声望榜采集失败: %s", exc)
+
+    @bot.task.add_interval(minutes=GOLD_PRICE_COLLECTOR_INTERVAL_MIN)
+    async def gold_price_collector():
+        try:
+            await collectors.collect_gold_price_once(mk, region=region, count=24)
+        except Exception as exc:
+            log.warning("金价采集失败: %s", exc)
