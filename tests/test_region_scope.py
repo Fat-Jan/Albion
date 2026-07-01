@@ -48,7 +48,7 @@ class RegionScopeTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(region_scope.should_process_message(msg, allow_bootstrap=True))
 
-    def test_configured_channel_id_still_requires_region_name_when_known(self):
+    def test_configured_channel_id_accepts_plain_name_but_rejects_other_region_prefix(self):
         binding = {"approval_channel_id": "111"}
 
         self.assertTrue(
@@ -56,7 +56,7 @@ class RegionScopeTest(unittest.IsolatedAsyncioTestCase):
                 binding, "111", ("approval_channel_id",), SimpleNamespace()
             )
         )
-        self.assertFalse(
+        self.assertTrue(
             region_scope.configured_channel_matches_region(
                 binding,
                 "111",
@@ -72,6 +72,46 @@ class RegionScopeTest(unittest.IsolatedAsyncioTestCase):
                 SimpleNamespace(name="eu-审批频道"),
             )
         )
+        self.assertFalse(
+            region_scope.configured_channel_matches_region(
+                binding,
+                "111",
+                ("approval_channel_id",),
+                SimpleNamespace(name="asia-审批频道"),
+            )
+        )
+
+    def test_process_message_allows_configured_channel_id_without_prefix(self):
+        msg = SimpleNamespace(
+            ctx=SimpleNamespace(
+                guild=SimpleNamespace(id="guild-1"),
+                channel=SimpleNamespace(id="111", name="审批频道"),
+            )
+        )
+
+        with patch.object(
+            region_scope.repo,
+            "get_guild_binding",
+            return_value={"approval_channel_id": "111"},
+        ) as get_binding:
+            self.assertTrue(region_scope.should_process_message(msg, region="eu"))
+
+        get_binding.assert_called_once_with("guild-1", "eu")
+
+    def test_process_message_rejects_configured_id_with_other_region_prefix(self):
+        msg = SimpleNamespace(
+            ctx=SimpleNamespace(
+                guild=SimpleNamespace(id="guild-1"),
+                channel=SimpleNamespace(id="111", name="asia-审批频道"),
+            )
+        )
+
+        with patch.object(
+            region_scope.repo,
+            "get_guild_binding",
+            return_value={"approval_channel_id": "111"},
+        ):
+            self.assertFalse(region_scope.should_process_message(msg, region="eu"))
 
     def test_new_channel_cutoff_excludes_channels_before_june_2026(self):
         old_channel = SimpleNamespace(

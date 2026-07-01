@@ -231,7 +231,7 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         auto._seen.clear()
         auto._seen_order.clear()
         auto._last_death_broadcast_at = None
-        channels = {"broadcast": FakeChannel("broadcast", name="击杀播报")}
+        channels = {"broadcast": FakeChannel("broadcast", name="asia-击杀播报")}
         bot = FakeScheduledBot(channels)
         auto.register(
             bot,
@@ -300,7 +300,7 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         repo.set_setting("guild", "member_role_id", "member")
         repo.set_setting("guild", "member_change_channel_id", "member-change")
         repo.set_player_binding("user-1", "guild", "player-1", "Latano")
-        channels = {"member-change": FakeChannel("member-change", name="📢成员变动")}
+        channels = {"member-change": FakeChannel("member-change", name="asia-📢成员变动")}
         bot = FakeScheduledBot(channels)
         auto.register(
             bot,
@@ -514,7 +514,7 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         rid = repo.create_regear_reviewer_request("guild", "user-1")
         channels = {
             "approval": FakeChannel("approval", name="eu-✅绑定审批"),
-            "member-change": FakeChannel("member-change", name="📢成员变动"),
+            "member-change": FakeChannel("member-change", name="asia-📢成员变动"),
         }
         bot = FakeBot(channels, FakeGuild(FakeUser([], user_id="owner")))
 
@@ -534,7 +534,7 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
         repo.set_setting("guild", "approval_channel_id", "approval")
         repo.set_setting("guild", "regear_reviewer_role_ids", "reviewer")
-        bot = FakeCommandBot({"approval": FakeChannel("approval", name="✅绑定审批")}, FakeGuild(FakeUser([])))
+        bot = FakeCommandBot({"approval": FakeChannel("approval", name="asia-✅绑定审批")}, FakeGuild(FakeUser([])))
         regear.register(bot, FakeGameInfo(sample_regear_event("event-1")), FakeMarket())
         msg = FakeMessage(FakeChannel("apply", name="eu-📥补装申请"), FakeUser([], user_id="user-1"))
 
@@ -687,7 +687,7 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         rid = repo.create_regear("guild", "user-1", "player-1", "event-1", 100)
         channels = {
             "review": FakeChannel("review", name="eu-🔍补装审核"),
-            "payout": FakeChannel("payout", name="💰补装发放"),
+            "payout": FakeChannel("payout", name="asia-💰补装发放"),
             "notify": FakeChannel("notify", name="asia-📣补装通知"),
         }
         bot = FakeBot(channels, FakeGuild(FakeUser(["reviewer"], user_id="reviewer-user")))
@@ -771,7 +771,7 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         rid = repo.create_regear("guild", "user-1", "player-1", "event-1", 100)
         channels = {
             "review": FakeChannel("review", name="eu-🔍补装审核"),
-            "notify": FakeChannel("notify", name="补装通知"),
+            "notify": FakeChannel("notify", name="asia-补装通知"),
         }
         bot = FakeBot(channels, FakeGuild(FakeUser(["reviewer"], user_id="reviewer-user")))
 
@@ -873,7 +873,7 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         repo.set_player_binding("user-1", "guild", "player-1", "Latano")
         channels = {
             "apply": FakeChannel("apply", name="eu-📥补装申请"),
-            "review": FakeChannel("review", name="🔍补装审核"),
+            "review": FakeChannel("review", name="asia-🔍补装审核"),
         }
         bot = FakeBot(channels, FakeGuild(FakeUser([], user_id="user-1")))
 

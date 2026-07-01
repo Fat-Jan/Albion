@@ -2,11 +2,28 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import logging
 
 from bot import config
+from bot.store import repo
 
 CHANNEL_CUTOFF = datetime(2026, 6, 1, tzinfo=UTC)
 REGION_PREFIXES = ("eu", "asia")
+CHANNEL_SETTING_FIELDS = (
+    "approval_channel_id",
+    "regear_channel_id",
+    "regear_apply_channel_id",
+    "regear_review_channel_id",
+    "regear_payout_channel_id",
+    "regear_notify_channel_id",
+    "broadcast_channel_id",
+    "kill_broadcast_channel_id",
+    "death_broadcast_channel_id",
+    "battle_report_channel_id",
+    "member_change_channel_id",
+)
+
+log = logging.getLogger(__name__)
 
 
 def region_code() -> str:
@@ -39,8 +56,21 @@ def channel_matches_region(channel, *, region: str | None = None) -> bool:
     return channel_name_matches_region(getattr(channel, "name", None), region=region)
 
 
-def channel_allowed(channel, *, allow_bootstrap: bool = False, region: str | None = None) -> bool:
+def channel_allowed(
+    channel,
+    *,
+    allow_bootstrap: bool = False,
+    region: str | None = None,
+    binding: dict | None = None,
+) -> bool:
     if channel_matches_region(channel, region=region):
+        return True
+    name = getattr(channel, "name", None)
+    if has_known_region_prefix(name):
+        return False
+    if channel_id_in_binding(
+        binding, getattr(channel, "id", None), CHANNEL_SETTING_FIELDS
+    ):
         return True
     return False
 
@@ -49,8 +79,15 @@ def should_process_message(
     msg, *, allow_bootstrap: bool = False, region: str | None = None
 ) -> bool:
     channel = getattr(getattr(msg, "ctx", None), "channel", None)
+    resolved_region = region or _message_region(msg)
+    if channel_allowed(channel, allow_bootstrap=allow_bootstrap, region=resolved_region):
+        return True
+    binding = _message_binding(msg, resolved_region)
     return channel_allowed(
-        channel, allow_bootstrap=allow_bootstrap, region=region or _message_region(msg)
+        channel,
+        allow_bootstrap=allow_bootstrap,
+        region=resolved_region,
+        binding=binding,
     )
 
 
@@ -92,7 +129,7 @@ def configured_channel_matches_region(
         return False
     if channel_matches_region(channel, region=region):
         return True
-    return getattr(channel, "name", None) is None
+    return not has_known_region_prefix(getattr(channel, "name", None))
 
 
 def _resolve_region(region: str | None = None) -> str:
@@ -107,6 +144,34 @@ def _message_region(msg) -> str | None:
     raw = getattr(bot, "_region", None) or getattr(bot, "region", None)
     if raw:
         return _normalize_region(raw)
+    return None
+
+
+def _message_binding(msg, region: str | None) -> dict | None:
+    guild_id = _message_guild_id(msg)
+    if not guild_id:
+        return None
+    try:
+        return repo.get_guild_binding(str(guild_id), _resolve_region(region))
+    except Exception as exc:
+        log.warning(
+            "load guild binding for region scope failed guild=%s: %s",
+            guild_id,
+            exc,
+        )
+        return None
+
+
+def _message_guild_id(msg) -> str | None:
+    ctx = getattr(msg, "ctx", None)
+    guild = getattr(ctx, "guild", None)
+    for candidate in (
+        getattr(guild, "id", None),
+        getattr(ctx, "guild_id", None),
+        getattr(msg, "guild_id", None),
+    ):
+        if candidate:
+            return str(candidate)
     return None
 
 

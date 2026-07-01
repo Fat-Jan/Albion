@@ -240,7 +240,7 @@ class BattleReportAutoTest(unittest.IsolatedAsyncioTestCase):
         repo.bind_guild("guild", "albion-guild", "Mika", "admin")
         repo.set_setting("guild", "battle_report_channel_id", "battle-channel")
         repo.set_setting("guild", "battle_report_min_guild_players", 2)
-        bot = FakeBot(channel_names={"battle-channel": "🗺️战报推送"})
+        bot = FakeBot(channel_names={"battle-channel": "asia-🗺️战报推送"})
         gi = FakeBattleGameInfo(_battle_detail_with_guild_players(20), _battle_events())
         bb = FakeAlbionBB(
             [

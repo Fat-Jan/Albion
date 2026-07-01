@@ -251,7 +251,7 @@ class RegisterFlowTest(unittest.IsolatedAsyncioTestCase):
         pid = repo.create_pending("guild", "user-1", "player-1", "Latano")
         channels = {
             "approval": FakeChannel("approval", name="eu-✅绑定审批"),
-            "member-change": FakeChannel("member-change", name="📢成员变动"),
+            "member-change": FakeChannel("member-change", name="asia-📢成员变动"),
         }
         bot = FakeBot(channels, FakeGuild(FakeUser(["admin-role"], user_id="admin")))
 
@@ -271,7 +271,7 @@ class RegisterFlowTest(unittest.IsolatedAsyncioTestCase):
         repo.bind_guild("guild", "albion-guild", "Albion Guild", "admin")
         repo.set_setting("guild", "member_role_id", "member-role")
         repo.set_setting("guild", "approval_channel_id", "approval")
-        channels = {"approval": FakeChannel("approval", name="✅绑定审批")}
+        channels = {"approval": FakeChannel("approval", name="asia-✅绑定审批")}
         bot = FakeCommandBot(channels, FakeGuild(FakeUser(["admin-role"], user_id="admin")))
         register.register(bot, FakeGameInfo())
         msg = FakeMessage(FakeChannel("apply", name="eu-📥补装申请"), FakeUser([], user_id="user-1"))
