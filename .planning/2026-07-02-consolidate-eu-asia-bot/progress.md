@@ -83,3 +83,17 @@
   - `scripts/check.sh` → unittest 226 tests OK + `compileall bot scripts tests` OK
   - `git diff --check` → OK
 - **Self-review:** `git diff -- bot/ai` 无输出，未越界修改 Phase 3.3；`rg "event_broadcast_seen|has_seen_event_broadcast|mark_event_broadcast_seen" bot tests` 显示 schema、repo API、auto 调用和测试均带 region；`git -C /Users/arm/Desktop/vscode/Albion-ASIA-kook status --short --branch` 只读检查显示参考仓已有脏文件，本阶段未写入 ASIA 仓；未启动真实 bot、未做 KOOK 活测，5 分钟内新击杀、夜间 10-19 人战报和线上日志频次下降留到 Phase 5 部署冒烟验证。
+
+### PR / Phase 5 - Delivery handoff（Codex companion）
+- **Status:** PR opened, deployment blocked on safe secret + SQLite export path.
+- **PR:** https://github.com/Fat-Jan/Albion/pull/1 (`feat/consolidate-dual-region` → `main`)
+- **Verification before PR:**
+  - `.venv/bin/python -m pytest tests/` → 226 passed
+  - `scripts/check.sh` → unittest 226 tests OK + `compileall bot scripts tests` OK
+  - `git diff --check 4a77efc..HEAD` → OK
+  - `git diff --check` → OK
+  - `git diff --cached --check` → OK
+  - committed secret scan found no SenseNova/KOOK secrets; only `Bearer test-key` test fixture matched broad bearer regex.
+- **OpenDeploy read-only probe:** `opendeploy context resolve --json` points existing EU project `32e65f76-29f3-401c-8c59-b689761f768d`, service `cd6868e9-cb87-47dd-ba88-0c56a995f59c`, live URL `https://cd6868e9.opendeploy.site`; `opendeploy deploy plan . --review --json` is ready with Dockerfile port 8080 and no blocking issues; `opendeploy preflight . --json` is blocked by OpenDeploy skill/plugin policy, not by code plan.
+- **Deployment blockers:** EU and ASIA OpenDeploy services still expose old single-region env keys only through redacted CLI output; region-keyed secrets (`KOOK_TOKEN_EU`, `KOOK_TOKEN_ASIA`, SenseNova `AI_API_KEY`) cannot be safely derived without an approved secret source. Both services have `/app/data` volumes, but `opendeploy routes list --json` shows volume list/add/resize/detach/restore/delete only, with no confirmed safe file export or container exec path to dump and merge SQLite.
+- **Not done:** no OpenDeploy redeploy, no SQLite merge, no KOOK `/ping` live smoke, and no old EU/ASIA project stop. Keep old projects running until the safe migration path is confirmed.
