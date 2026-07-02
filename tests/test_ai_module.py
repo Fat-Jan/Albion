@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from datetime import date
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from bot import config
 from bot.ai.client import AIClient, AIClientConfig
@@ -63,6 +64,39 @@ class FakeGameInfo:
                 "Victim": {"Name": "Latano", "GuildName": "Mika", "AverageItemPower": 1200},
             }
         ]
+
+
+class FakeCommandBot:
+    def __init__(self):
+        self.commands = {}
+        self.message_handler = None
+
+    def command(self, *, name):
+        def decorator(func):
+            self.commands[name] = func
+            return func
+
+        return decorator
+
+    def on_message(self):
+        def decorator(func):
+            self.message_handler = func
+            return func
+
+        return decorator
+
+
+def fake_message(*, content="问题", channel_name="普通频道", channel_id="channel-1"):
+    channel = SimpleNamespace(id=channel_id, name=channel_name)
+    guild = SimpleNamespace(id="guild-1")
+    author = SimpleNamespace(id="user-1")
+    return SimpleNamespace(
+        content=content,
+        mention=[],
+        ctx=SimpleNamespace(channel=channel, guild=guild),
+        author=author,
+        author_id=author.id,
+    )
 
 
 class AIClientTest(unittest.IsolatedAsyncioTestCase):
@@ -403,6 +437,52 @@ class AIRouterTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn(f"#{own_id}", text)
         self.assertIn(f"#{other_id}", text)
+
+
+class AIRegistrationTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.bot = FakeCommandBot()
+        self.service = AIService(FakeAIClient("AI 说明"), enabled=True)
+
+    def register(self):
+        with patch.object(
+            ai_commands.config,
+            "token_runtime_info",
+            return_value={"bot_id": "49050", "fingerprint": "fp", "source": "test"},
+        ):
+            ai_commands.register(
+                self.bot,
+                self.service,
+                FakeGameInfo(),
+                SimpleNamespace(),
+                region="eu",
+            )
+
+    async def test_assistant_command_allows_generic_channel_but_rejects_other_region(self):
+        self.register()
+        with patch.object(ai_commands, "_reply_assistant", new=AsyncMock()) as reply:
+            await self.bot.commands["助手"](
+                fake_message(channel_name="普通频道"),
+                "我的绑定状态",
+            )
+            await self.bot.commands["助手"](
+                fake_message(channel_name="asia-机器人测试"),
+                "我的绑定状态",
+            )
+
+        reply.assert_awaited_once()
+
+    async def test_bot_mention_allows_generic_channel_but_rejects_other_region(self):
+        self.register()
+        with patch.object(ai_commands, "_reply_assistant", new=AsyncMock()) as reply:
+            await self.bot.message_handler(
+                fake_message(content="(met)49050(met) 我的绑定状态", channel_name="普通频道")
+            )
+            await self.bot.message_handler(
+                fake_message(content="(met)49050(met) 我的绑定状态", channel_name="asia-机器人测试")
+            )
+
+        reply.assert_awaited_once()
 
 
 class AIContextTest(unittest.TestCase):

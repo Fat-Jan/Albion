@@ -75,6 +75,18 @@ def channel_allowed(
     return False
 
 
+def is_other_region_channel(
+    channel, cfg: config.AlbionRegionConfig | None = None, *, region: str | None = None
+) -> bool:
+    current_region = region
+    if current_region is None and cfg is not None:
+        current_region = getattr(cfg, "region_code", None) or getattr(cfg, "region", None)
+    current_region = _resolve_region(current_region)
+    other_regions = tuple(prefix for prefix in REGION_PREFIXES if prefix != current_region)
+    name = str(getattr(channel, "name", "") or "").strip().lower()
+    return any(name.startswith(f"{prefix}-") for prefix in other_regions)
+
+
 def should_process_message(
     msg, *, allow_bootstrap: bool = False, region: str | None = None
 ) -> bool:

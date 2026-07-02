@@ -113,6 +113,23 @@ class RegionScopeTest(unittest.IsolatedAsyncioTestCase):
         ):
             self.assertFalse(region_scope.should_process_message(msg, region="eu"))
 
+    def test_other_region_channel_detects_only_explicit_other_prefix(self):
+        self.assertTrue(
+            region_scope.is_other_region_channel(
+                SimpleNamespace(name="asia-随便哪个频道"), region="eu"
+            )
+        )
+        self.assertFalse(
+            region_scope.is_other_region_channel(
+                SimpleNamespace(name="eu-随便哪个频道"), region="eu"
+            )
+        )
+        self.assertFalse(
+            region_scope.is_other_region_channel(
+                SimpleNamespace(name="随便哪个频道"), region="eu"
+            )
+        )
+
     def test_new_channel_cutoff_excludes_channels_before_june_2026(self):
         old_channel = SimpleNamespace(
             id="old",

@@ -216,7 +216,7 @@ def register(
 
     @bot.command(name="助手")
     async def assistant_cmd(msg: Message, *args):
-        if not region_scope.should_process_message(msg, region=region):
+        if region_scope.is_other_region_channel(msg.ctx.channel, region=region):
             return
         question = " ".join(args).strip()
         await _reply_assistant(msg, router, question, region=region)
@@ -244,8 +244,14 @@ def register(
             return
         if not _message_mentions_bot(msg, bot_id):
             return
-        if not region_scope.should_process_message(msg, region=region):
+        if region_scope.is_other_region_channel(msg.ctx.channel, region=region):
             return
+        log.debug(
+            "AI mention received channel=%s guild=%s region=%s",
+            getattr(msg.ctx.channel, "name", "?"),
+            getattr(msg.ctx.guild, "id", "?"),
+            region,
+        )
         question = _strip_bot_mention(msg.content, bot_id)
         intent = _parse_mention_intent(question)
         log.info(

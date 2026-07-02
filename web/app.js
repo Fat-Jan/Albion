@@ -7,11 +7,144 @@ const endpoints = {
   attendance: "/api/attendance/recent?limit=20&min_guild_players=20",
 };
 
+const I18N = {
+  en: {
+    title: "Ops Dashboard",
+    eyebrow: "Albion EU KOOK",
+    collectors: "Collectors",
+    gold: "Gold Price",
+    highFame: "High Fame",
+    leaderboards: "Leaderboards",
+    attendance: "Attendance",
+    health: "Health",
+    region: "Region",
+    version: "Version",
+    heartbeat: "Heartbeat",
+    lastTask: "Last Task",
+    refresh: "Refresh",
+    refreshing: "Refreshing",
+    refreshDashboard: "Refresh dashboard",
+    refreshingDashboard: "Refreshing dashboard",
+    addEuBot: "Add EU Bot",
+    addAsiaBot: "Add ASIA Bot",
+    unset: "unset",
+    noCollectors: "No collector runs yet.",
+    noGold: "No gold snapshot yet.",
+    noFame: "No high-fame events cached.",
+    noLeaderboard: "No leaderboard snapshots yet.",
+    noAttendance: "No attendance snapshot yet.",
+    emptySnapshot: "Empty snapshot.",
+    noMembers: "No member rows.",
+    recentBattles: "Recent battles",
+    guild: "guild",
+    battles: "battles",
+    fame: "fame",
+    priceMissing: "No price",
+    unknown: "Unknown",
+    statusOperational: "Operational",
+    statusDegraded: "Degraded",
+    statusAttention: "Attention",
+    statusWaiting: "Waiting",
+    summaryCollectors: "Collectors",
+    summarySignals: "Signals",
+    summaryGuilds: "Guilds",
+    summaryWaiting: "waiting",
+    panelErrors: "panel errors",
+    noticePrefix: "Some panels failed to load:",
+    colName: "Name",
+    colGuild: "Guild",
+    colStatus: "Status",
+    colLastRun: "Last Run",
+  },
+  zh: {
+    title: "运营台",
+    eyebrow: "Albion EU KOOK",
+    collectors: "采集器",
+    gold: "黄金走势",
+    highFame: "高声望事件",
+    leaderboards: "排行榜",
+    attendance: "出勤快照",
+    health: "健康",
+    region: "区服",
+    version: "版本",
+    heartbeat: "心跳",
+    lastTask: "上次任务",
+    refresh: "刷新",
+    refreshing: "刷新中",
+    refreshDashboard: "刷新运营台",
+    refreshingDashboard: "运营台刷新中",
+    addEuBot: "添加欧服机器人",
+    addAsiaBot: "添加亚服机器人",
+    unset: "未配置",
+    noCollectors: "暂无采集器记录",
+    noGold: "暂无黄金快照",
+    noFame: "暂无高声望事件",
+    noLeaderboard: "暂无排行榜快照",
+    noAttendance: "暂无出勤快照",
+    emptySnapshot: "空快照",
+    noMembers: "暂无成员行",
+    recentBattles: "近期战斗",
+    guild: "本会",
+    battles: "场战斗",
+    fame: "声望",
+    priceMissing: "暂无价格",
+    unknown: "未知",
+    statusOperational: "正常运行",
+    statusDegraded: "部分降级",
+    statusAttention: "需要关注",
+    statusWaiting: "等待中",
+    summaryCollectors: "采集器",
+    summarySignals: "信号",
+    summaryGuilds: "公会",
+    summaryWaiting: "等待中",
+    panelErrors: "个面板错误",
+    noticePrefix: "部分面板加载失败：",
+    colName: "名称",
+    colGuild: "公会 ID",
+    colStatus: "状态",
+    colLastRun: "上次运行",
+  },
+};
+
+let currentLang = localStorage.getItem("lang") || "zh";
+let currentDashboardData = null;
+let currentDashboardErrors = [];
+
 document.getElementById("refresh-button").addEventListener("click", () => {
   loadDashboard();
 });
 
+document.querySelectorAll(".lang-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    setLang(btn.dataset.lang);
+  });
+});
+
+setLang(currentLang, { reload: false });
 loadDashboard();
+
+function setLang(lang, options = {}) {
+  currentLang = I18N[lang] ? lang : "zh";
+  localStorage.setItem("lang", currentLang);
+  document.documentElement.lang = currentLang === "zh" ? "zh-CN" : "en";
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    const key = el.dataset.i18n;
+    if (I18N[currentLang][key]) {
+      el.textContent = I18N[currentLang][key];
+    }
+  });
+  document.querySelectorAll(".lang-btn").forEach((btn) => {
+    btn.setAttribute("aria-pressed", String(btn.dataset.lang === currentLang));
+  });
+  setLoading(document.body.classList.contains("is-loading"));
+  if (options.reload !== false) {
+    rerenderDashboard();
+  }
+}
+
+function t(key) {
+  return I18N[currentLang][key] || key;
+}
 
 async function loadDashboard() {
   setLoading(true);
@@ -38,18 +171,26 @@ async function loadDashboard() {
       }
     }
 
-    renderStatus(data.status || {});
-    renderInvites(data.invites || {});
-    renderCollectors((data.status || {}).collectors || []);
-    renderGold((data.gold || {}).items || []);
-    renderEvents((data.events || {}).items || []);
-    renderLeaderboards((data.leaderboards || {}).items || []);
-    renderAttendance((data.attendance || {}).items || []);
-    renderOpsSummary(data, errors);
-    renderNotice(errors);
+    currentDashboardData = data;
+    currentDashboardErrors = errors;
+    rerenderDashboard();
   } finally {
     setLoading(false);
   }
+}
+
+function rerenderDashboard() {
+  const data = currentDashboardData || {};
+  const errors = currentDashboardErrors || [];
+  renderStatus(data.status || {});
+  renderInvites(data.invites || {});
+  renderCollectors((data.status || {}).collectors || []);
+  renderGold((data.gold || {}).items || []);
+  renderEvents((data.events || {}).items || []);
+  renderLeaderboards((data.leaderboards || {}).items || []);
+  renderAttendance((data.attendance || {}).items || []);
+  renderOpsSummary(data, errors);
+  renderNotice(errors);
 }
 
 function renderStatus(status) {
@@ -66,7 +207,7 @@ function renderOpsSummary(data, errors) {
   const collectorSummary = status.collector_summary || summarizeCollectors(status.collectors || []);
   const collectors = collectorSummary.total
     ? `${collectorSummary.ok || 0}/${collectorSummary.total} ok`
-    : "waiting";
+    : t("summaryWaiting");
 
   const events = ((data.events || {}).items || []).length;
   const leaderboardSnapshots = ((data.leaderboards || {}).items || []);
@@ -75,7 +216,7 @@ function renderOpsSummary(data, errors) {
   ).size || leaderboardSnapshots.length;
   const goldRows = ((((data.gold || {}).items || [])[0] || {}).items || []).length;
   const signals = errors.length
-    ? `${errors.length} panel errors`
+    ? `${errors.length} ${t("panelErrors")}`
     : `${events} ev / ${leaderboardKinds} bd / ${goldRows} gold`;
 
   const guildNames = ((data.attendance || {}).items || [])
@@ -84,7 +225,7 @@ function renderOpsSummary(data, errors) {
 
   setText("summary-collectors", collectors);
   setText("summary-signals", signals);
-  setText("summary-guilds", guildNames.length ? shortList(guildNames) : "waiting");
+  setText("summary-guilds", guildNames.length ? shortList(guildNames) : t("summaryWaiting"));
 }
 
 function renderHealth(summary) {
@@ -101,8 +242,8 @@ function renderHealth(summary) {
 function renderInvites(invites) {
   const root = document.getElementById("invite-actions");
   clear(root);
-  addInvite(root, "Add EU Bot", invites.eu, "button");
-  addInvite(root, "Add ASIA Bot", invites.asia, "button secondary");
+  addInvite(root, t("addEuBot"), invites.eu, "button");
+  addInvite(root, t("addAsiaBot"), invites.asia, "button secondary");
 }
 
 function addInvite(root, label, href, className) {
@@ -110,7 +251,7 @@ function addInvite(root, label, href, className) {
     const disabled = document.createElement("span");
     disabled.className = "button secondary is-disabled";
     disabled.setAttribute("aria-disabled", "true");
-    disabled.textContent = `${label.replace(/^Add\s+/, "")}: unset`;
+    disabled.textContent = `${label.replace(/^Add\s+/, "")}: ${t("unset")}`;
     root.appendChild(disabled);
     return;
   }
@@ -131,7 +272,7 @@ function renderCollectors(items) {
     const cell = document.createElement("td");
     cell.colSpan = 4;
     cell.className = "empty";
-    cell.textContent = "No collector runs yet.";
+    cell.textContent = t("noCollectors");
     row.appendChild(cell);
     root.appendChild(row);
     return;
@@ -153,7 +294,7 @@ function renderGold(snapshots) {
   clear(root);
   const latest = snapshots[0];
   if (!latest || !(latest.items || []).length) {
-    empty(root, "No gold snapshot yet.");
+    empty(root, t("noGold"));
     return;
   }
   for (const row of latest.items.slice(0, 8)) {
@@ -169,15 +310,15 @@ function renderEvents(items) {
   const root = document.getElementById("event-list");
   clear(root);
   if (!items.length) {
-    empty(root, "No high-fame events cached.");
+    empty(root, t("noFame"));
     return;
   }
   for (const item of items.slice(0, 10)) {
     const killer = item.killer || {};
     const victim = item.victim || {};
     root.appendChild(summaryRow(
-      `${killer.name || "Unknown"} -> ${victim.name || "Unknown"}`,
-      `${formatNumber(item.fame)} fame`,
+      `${killer.name || t("unknown")} -> ${victim.name || t("unknown")}`,
+      `${formatNumber(item.fame)} ${t("fame")}`,
       formatTime(item.event_time),
     ));
   }
@@ -187,7 +328,7 @@ function renderLeaderboards(snapshots) {
   const root = document.getElementById("leaderboard-list");
   clear(root);
   if (!snapshots.length) {
-    empty(root, "No leaderboard snapshots yet.");
+    empty(root, t("noLeaderboard"));
     return;
   }
   const latestByKind = new Map();
@@ -212,7 +353,7 @@ function renderLeaderboards(snapshots) {
     if (!list.childNodes.length) {
       const li = document.createElement("li");
       li.className = "empty";
-      li.textContent = "Empty snapshot.";
+      li.textContent = t("emptySnapshot");
       list.appendChild(li);
     }
     group.appendChild(list);
@@ -224,7 +365,7 @@ function renderAttendance(items) {
   const root = document.getElementById("attendance-list");
   clear(root);
   if (!items.length) {
-    empty(root, "No attendance snapshot yet.");
+    empty(root, t("noAttendance"));
     return;
   }
   for (const item of items) {
@@ -235,15 +376,15 @@ function renderAttendance(items) {
       .join(" | ");
     const recentBattles = (snapshot.battles || []).slice(0, 3);
     const battleDetail = recentBattles.length
-      ? `Recent battles: ${recentBattles.map(battleLine).join(" / ")}`
+      ? `${t("recentBattles")}: ${recentBattles.map(battleLine).join(" / ")}`
       : "";
-    const detail = [memberDetail || "No member rows.", battleDetail]
+    const detail = [memberDetail || t("noMembers"), battleDetail]
       .filter(Boolean)
       .join(" | ");
     root.appendChild(summaryRow(
       item.albion_guild_name || item.albion_guild_id || "Guild",
       detail,
-      `${snapshot.counted_battle_count || 0}/${snapshot.battle_count || 0} battles`,
+      `${snapshot.counted_battle_count || 0}/${snapshot.battle_count || 0} ${t("battles")}`,
     ));
   }
 }
@@ -267,7 +408,7 @@ function summaryRow(title, meta, badge) {
 }
 
 function leaderboardLine(item) {
-  const name = item.Name || item.name || item.PlayerName || item.GuildName || "Unknown";
+  const name = item.Name || item.name || item.PlayerName || item.GuildName || t("unknown");
   const fame = item.Fame || item.fame || item.KillFame || item.TotalFame || item.Value || "";
   return fame ? `${name} - ${formatNumber(fame)}` : name;
 }
@@ -275,7 +416,7 @@ function leaderboardLine(item) {
 function battleLine(item) {
   const when = formatTime(item.start_time || item.startTime);
   const players = item.guild_players ?? item.guildPlayers ?? "-";
-  return `${when} (${players} guild)`;
+  return `${when} (${players} ${t("guild")})`;
 }
 
 function labelKind(kind) {
@@ -294,7 +435,7 @@ function shortList(items) {
 
 function goldPrice(row) {
   const value = row.price || row.Price || row.value || row.Value || "";
-  return value ? formatNumber(value) : "No price";
+  return value ? formatNumber(value) : t("priceMissing");
 }
 
 function formatTime(value) {
@@ -305,7 +446,7 @@ function formatTime(value) {
   if (Number.isNaN(date.getTime())) {
     return String(value);
   }
-  return date.toLocaleString();
+  return date.toLocaleString(currentLang === "zh" ? "zh-CN" : "en-US");
 }
 
 function formatNumber(value) {
@@ -313,7 +454,7 @@ function formatNumber(value) {
   if (!Number.isFinite(number)) {
     return String(value || 0);
   }
-  return number.toLocaleString();
+  return number.toLocaleString(currentLang === "zh" ? "zh-CN" : "en-US");
 }
 
 function appendCell(row, value) {
@@ -372,15 +513,15 @@ function summarizeCollectors(collectors) {
 
 function healthLabel(state) {
   if (state === "ok") {
-    return "Operational";
+    return t("statusOperational");
   }
   if (state === "bad") {
-    return "Attention";
+    return t("statusAttention");
   }
   if (state === "warn") {
-    return "Degraded";
+    return t("statusDegraded");
   }
-  return "Waiting";
+  return t("statusWaiting");
 }
 
 function renderNotice(errors) {
@@ -391,7 +532,7 @@ function renderNotice(errors) {
     return;
   }
   notice.hidden = false;
-  notice.textContent = `Some panels failed to load: ${errors.join(" | ")}`;
+  notice.textContent = `${t("noticePrefix")} ${errors.join(" | ")}`;
 }
 
 function setLoading(isLoading) {
@@ -401,8 +542,9 @@ function setLoading(isLoading) {
   document.body.classList.toggle("is-loading", isLoading);
   shell.setAttribute("aria-busy", String(isLoading));
   button.disabled = isLoading;
-  button.setAttribute("aria-label", isLoading ? "Refreshing dashboard" : "Refresh dashboard");
-  label.textContent = isLoading ? "Refreshing" : "Refresh";
+  button.setAttribute("aria-label", isLoading ? t("refreshingDashboard") : t("refreshDashboard"));
+  button.title = isLoading ? t("refreshingDashboard") : t("refreshDashboard");
+  label.textContent = isLoading ? t("refreshing") : t("refresh");
 }
 
 function empty(root, message) {

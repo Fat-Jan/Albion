@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 from datetime import datetime, timedelta
+from unittest.mock import patch
 
 from bot import config
 from bot.cards.query_cards import KILLBOARD_URL
@@ -336,6 +337,14 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(auto._should_run_death_broadcast(busy_now, busy_now - timedelta(seconds=60) + timedelta(microseconds=1)))
 
     async def test_death_broadcast_fetches_feed_pages_and_survives_one_failed_page(self):
+        class NormalWindowDatetime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                value = cls(2026, 6, 14, 19, 0)
+                if tz is not None:
+                    return value.replace(tzinfo=tz)
+                return value
+
         repo.bind_guild("guild", "guild", "Albion Guild", "admin")
         repo.set_setting("guild", "broadcast_channel_id", "broadcast")
         auto._primed = True
@@ -354,7 +363,8 @@ class RegearFlowTest(unittest.IsolatedAsyncioTestCase):
         )
         auto.register(bot, gameinfo, FakeBroadcastMarket(loss_total=0))
 
-        await bot.task.interval_tasks["death_broadcast"]()
+        with patch.object(auto, "datetime", NormalWindowDatetime):
+            await bot.task.interval_tasks["death_broadcast"]()
 
         self.assertEqual(sorted(gameinfo.event_offsets), [0, 51, 102, 153])
         self.assertEqual(len(channels["broadcast"].messages), 1)

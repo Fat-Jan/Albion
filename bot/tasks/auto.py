@@ -382,9 +382,27 @@ def register(
     *,
     region: str = "eu",
 ) -> None:
+    # Per-region mutable state — initialised from module globals so tests can
+    # preset them via `auto._primed = True` etc. before calling register().
+    # Each call to register() gets its own independent copy, so EU and ASIA
+    # tasks no longer share a single timer/dedup set.
+    _local_last_death_broadcast_at: datetime | None = _last_death_broadcast_at
+    _local_seen: set = set(_seen)
+    _local_seen_order: deque = deque(_seen_order, maxlen=2000)
+    _local_primed: bool = _primed
+    _local_price_ref_refreshing: bool = _price_ref_refreshing
+
+    def _remember_local(eid) -> None:
+        if eid in _local_seen:
+            return
+        if len(_local_seen_order) == _local_seen_order.maxlen:
+            _local_seen.discard(_local_seen_order[0])
+        _local_seen_order.append(eid)
+        _local_seen.add(eid)
+
     @bot.task.add_interval(seconds=BROADCAST_CHECK_INTERVAL_SEC)
     async def death_broadcast():
-        global _last_death_broadcast_at, _primed
+        nonlocal _local_last_death_broadcast_at, _local_primed
         targets = {
             gb["albion_guild_id"]: gb
             for gb in repo.all_guild_bindings(region=region)
@@ -393,18 +411,18 @@ def register(
         if not targets:
             return
         now = datetime.now()
-        if not _should_run_death_broadcast(now, _last_death_broadcast_at):
+        if not _should_run_death_broadcast(now, _local_last_death_broadcast_at):
             return
-        _last_death_broadcast_at = now
+        _local_last_death_broadcast_at = now
 
         events = await _fetch_event_feed_pages(gi, now=now)
 
-        if not _primed:
+        if not _local_primed:
             for ev in events:
                 eid = ev.get("EventId")
                 if not eid:
                     continue
-                _remember(eid)
+                _remember_local(eid)
                 for agid, gb in targets.items():
                     is_kill, is_death = classify(ev, agid)
                     if not (is_kill or is_death):
@@ -412,7 +430,7 @@ def register(
                     repo.mark_event_broadcast_seen(
                         gb["kook_guild_id"], region, str(eid)
                     )
-            _primed = True
+            _local_primed = True
             log.info(
                 "死亡播报首轮预热 region=%s fetched_events=%d new_events=0 broadcasted=0 skipped_by_region=0",
                 region,
@@ -420,7 +438,7 @@ def register(
             )
             return
 
-        new_events = [ev for ev in events if ev.get("EventId") not in _seen]
+        new_events = [ev for ev in events if ev.get("EventId") not in _local_seen]
         sent = 0
         new_count = 0
         skipped_by_region = 0
@@ -436,14 +454,14 @@ def register(
                 matched_target = True
                 kgid = gb["kook_guild_id"]
                 if repo.has_seen_event_broadcast(kgid, region, str(eid)):
-                    _remember(eid)
+                    _remember_local(eid)
                     continue
                 new_count += 1
                 channel_id = _broadcast_channel_for_event(
                     gb, is_kill=is_kill, is_death=is_death
                 )
                 if not channel_id:
-                    _remember(eid)
+                    _remember_local(eid)
                     continue
                 if sent >= MAX_BROADCAST_PER_TICK:
                     log.info(
@@ -470,7 +488,7 @@ def register(
                         region=region,
                     ):
                         skipped_by_region += 1
-                        _remember(eid)
+                        _remember_local(eid)
                         log.info(
                             "跳过非本区播报频道 guild=%s channel=%s name=%s",
                             gb.get("kook_guild_id"),
@@ -490,12 +508,12 @@ def register(
                             log.warning("播报估值失败 event=%s: %s", ev.get("EventId"), exc)
                     await channel.send(kill_card(ev, is_kill, _is_large_broadcast(ev, est), est))
                     repo.mark_event_broadcast_seen(kgid, region, str(eid))
-                    _remember(eid)
+                    _remember_local(eid)
                     sent += 1
                 except Exception as exc:
                     log.warning("发播报失败: %s", exc)
             if not matched_target:
-                _remember(eid)
+                _remember_local(eid)
         log.info(
             "死亡播报轮询完成 region=%s fetched_events=%d new_events=%d broadcasted=%d skipped_by_region=%d",
             region,
@@ -564,10 +582,10 @@ def register(
 
     @bot.task.add_interval(minutes=price_reference.REF_REFRESH_INTERVAL_MIN)
     async def weapon_price_reference_refresh():
-        global _price_ref_refreshing
-        if _price_ref_refreshing:
+        nonlocal _local_price_ref_refreshing
+        if _local_price_ref_refreshing:
             return
-        _price_ref_refreshing = True
+        _local_price_ref_refreshing = True
         try:
             stats = await price_reference.refresh_weapon_price_reference(mk)
             log.info(
@@ -579,7 +597,7 @@ def register(
         except Exception as exc:
             log.warning("武器/副手低价参考刷新失败: %s", exc)
         finally:
-            _price_ref_refreshing = False
+            _local_price_ref_refreshing = False
 
     @bot.task.add_interval(minutes=BATTLE_REPORT_INTERVAL_MIN)
     async def battle_report():
