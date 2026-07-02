@@ -1,5 +1,8 @@
 import hashlib
+import importlib
+import os
 import unittest
+from unittest.mock import patch
 
 from bot import config
 
@@ -30,6 +33,81 @@ class ConfigDiagnosticsTest(unittest.TestCase):
         info = config.token_runtime_info(token, env_file_token=token)
 
         self.assertEqual(info["source"], "env_file")
+
+    def test_region_configs_include_eu_and_asia_defaults(self):
+        self.assertEqual(set(config.REGION_CONFIGS), {"eu", "asia"})
+        self.assertEqual(config.REGION_CONFIGS["eu"].region_code, "eu")
+        self.assertEqual(config.REGION_CONFIGS["asia"].region_code, "asia")
+        self.assertEqual(
+            config.REGION_CONFIGS["eu"].gameinfo_base,
+            "https://gameinfo-ams.albiononline.com/api/gameinfo",
+        )
+        self.assertEqual(
+            config.REGION_CONFIGS["asia"].gameinfo_base,
+            "https://gameinfo-sgp.albiononline.com/api/gameinfo",
+        )
+        self.assertEqual(config.REGION_CONFIGS["asia"].killboard_server, "live_sgp")
+
+    def test_ai_defaults_use_sensenova_deepseek_flash(self):
+        old_values = {
+            key: os.environ.pop(key, None)
+            for key in (
+                "AI_BASE_URL",
+                "AI_API_KEY",
+                "AI_MODEL",
+                "AI_MAX_OUTPUT_TOKENS",
+            )
+        }
+        old_values["PYTHON_DOTENV_DISABLED"] = os.environ.get("PYTHON_DOTENV_DISABLED")
+        os.environ["PYTHON_DOTENV_DISABLED"] = "true"
+        self.addCleanup(self._restore_env, old_values)
+
+        reloaded = importlib.reload(config)
+        self.addCleanup(importlib.reload, config)
+
+        self.assertEqual(reloaded.AI_BASE_URL, "https://token.sensenova.cn/v1")
+        self.assertEqual(reloaded.AI_MODEL, "deepseek-v4-flash")
+        self.assertEqual(reloaded.AI_MAX_OUTPUT_TOKENS, 2000)
+
+    def test_legacy_single_value_env_is_eu_fallback_only(self):
+        keys = (
+            "KOOK_TOKEN_EU",
+            "GAMEINFO_BASE_EU",
+            "AODP_BASE_EU",
+            "ALBIONBB_BASE_EU",
+            "ALBIONBB_WEB_BASE_EU",
+            "KILLBOARD_SERVER_EU",
+        )
+        old_values = {key: os.environ.pop(key, None) for key in keys}
+        self.addCleanup(self._restore_env, old_values)
+        env = {
+            "KOOK_TOKEN": "1/MTIzNDU=/legacy",
+            "GAMEINFO_BASE": "https://legacy-gameinfo.example/api",
+            "AODP_BASE": "https://legacy-aodp.example",
+            "ALBIONBB_BASE": "https://legacy-bb-api.example/eu",
+            "ALBIONBB_WEB_BASE": "https://legacy-bb-web.example",
+            "KILLBOARD_SERVER": "legacy_live",
+        }
+        with patch.dict(os.environ, env, clear=False):
+            reloaded = importlib.reload(config)
+            self.addCleanup(importlib.reload, config)
+
+            self.assertEqual(reloaded.REGION_CONFIGS["eu"].kook_token, env["KOOK_TOKEN"])
+            self.assertEqual(
+                reloaded.REGION_CONFIGS["eu"].gameinfo_base, env["GAMEINFO_BASE"]
+            )
+            self.assertEqual(
+                reloaded.REGION_CONFIGS["asia"].gameinfo_base,
+                "https://gameinfo-sgp.albiononline.com/api/gameinfo",
+            )
+
+    @staticmethod
+    def _restore_env(values: dict[str, str | None]) -> None:
+        for key, value in values.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 if __name__ == "__main__":

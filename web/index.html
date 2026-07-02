@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Albion KOOK 运营台</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell" id="dashboard-shell">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <span class="brand-mark" aria-hidden="true">EU</span>
+          <div class="brand-copy">
+            <p class="eyebrow" data-i18n="eyebrow">Albion EU KOOK</p>
+            <h1 data-i18n="title">运营台</h1>
+          </div>
+        </div>
+        <div class="ops-summary" aria-label="dashboard summary">
+          <div>
+            <span data-i18n="summaryCollectors">采集器</span>
+            <strong id="summary-collectors">-</strong>
+          </div>
+          <div>
+            <span data-i18n="summarySignals">信号</span>
+            <strong id="summary-signals">-</strong>
+          </div>
+          <div>
+            <span data-i18n="summaryGuilds">公会</span>
+            <strong id="summary-guilds">-</strong>
+          </div>
+        </div>
+        <div class="actions">
+          <div class="lang-switcher" role="group" aria-label="语言切换">
+            <button type="button" class="lang-btn" data-lang="zh" aria-pressed="true">中</button>
+            <button type="button" class="lang-btn" data-lang="en" aria-pressed="false">EN</button>
+          </div>
+          <div class="invite-actions" id="invite-actions"></div>
+        </div>
+      </header>
+
+      <section class="status-band" aria-label="runtime status">
+        <div id="status-health-card">
+          <span class="label" data-i18n="health">健康</span>
+          <strong><span class="pill" id="status-health">-</span></strong>
+          <span class="status-note" id="status-health-note">-</span>
+        </div>
+        <div>
+          <span class="label" data-i18n="region">区服</span>
+          <strong id="status-region">-</strong>
+        </div>
+        <div>
+          <span class="label" data-i18n="version">版本</span>
+          <strong id="status-version">-</strong>
+        </div>
+        <div>
+          <span class="label" data-i18n="heartbeat">心跳</span>
+          <strong id="status-heartbeat">-</strong>
+        </div>
+        <div>
+          <span class="label" data-i18n="lastTask">上次任务</span>
+          <strong id="status-task">-</strong>
+        </div>
+      </section>
+
+      <p class="notice" id="dashboard-notice" aria-live="polite" hidden></p>
+
+      <section class="grid">
+        <article class="panel wide">
+          <div class="panel-head">
+            <h2 data-i18n="collectors">采集器</h2>
+            <button type="button" id="refresh-button" title="Refresh dashboard" aria-label="Refresh dashboard">
+              <svg class="refresh-icon" aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M20 12a8 8 0 1 1-2.34-5.66" />
+                <path d="M20 4v6h-6" />
+              </svg>
+              <span class="refresh-label" data-i18n="refresh">刷新</span>
+            </button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th data-i18n="colName">名称</th>
+                  <th data-i18n="colGuild">公会 ID</th>
+                  <th data-i18n="colStatus">状态</th>
+                  <th data-i18n="colLastRun">上次运行</th>
+                </tr>
+              </thead>
+              <tbody id="collector-rows"></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h2 data-i18n="gold">黄金走势</h2>
+          </div>
+          <div id="gold-list" class="stack"></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h2 data-i18n="highFame">高声望事件</h2>
+          </div>
+          <div id="event-list" class="stack"></div>
+        </article>
+
+        <article class="panel wide">
+          <div class="panel-head">
+            <h2 data-i18n="leaderboards">排行榜</h2>
+          </div>
+          <div id="leaderboard-list" class="leaderboards"></div>
+        </article>
+
+        <article class="panel wide">
+          <div class="panel-head">
+            <h2 data-i18n="attendance">出勤快照</h2>
+          </div>
+          <div id="attendance-list" class="stack"></div>
+        </article>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

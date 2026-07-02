@@ -57,10 +57,10 @@
 
 ## 项目定位
 
-- 这是面向单个亚服公会的 KOOK 机器人。
+- 这是面向单个欧服公会的 KOOK 机器人。
 - 技术栈固定为 Python + khl.py + httpx + SQLite。
-- 数据源固定为亚服：`gameinfo-sgp`、AODP `east`、albionbb `asia`。
-- 当前线上服务在阿里云新加坡 `aliyun_singapore` 的 `albion-kook.service`。
+- 数据源默认欧服：`gameinfo-ams`、AODP `europe`、albionbb `eu`；如切区必须三类数据源保持同区。
+- 阿里云新加坡 `aliyun_singapore` 的 `albion-kook.service` 属于迁移来源/亚服旧服务残留；欧服线上实例未明确前，不作为当前部署依据。
 
 ## 安全边界
 

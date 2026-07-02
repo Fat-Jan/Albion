@@ -131,17 +131,28 @@ def battles_context(guild_name: str, battles: list[dict]) -> dict:
     return {
         **_base("battles_summary"),
         "guild_name": guild_name,
-        "battles": [
-            {
-                "id": b.get("id") or b.get("Id") or b.get("battleId"),
-                "start_time": _api_time(b.get("startTime") or b.get("StartTime")),
-                "total_kills": b.get("totalKills"),
-                "total_fame": b.get("totalFame"),
-                "total_players": b.get("totalPlayers"),
-            }
-            for b in battles[:8]
-        ],
+        "battles": [_battle_summary_row(b) for b in battles[:8]],
     }
+
+
+def _battle_summary_row(battle: dict) -> dict:
+    row = {
+        "id": _first_present(battle, "id", "Id", "battleId", "BattleId"),
+        "start_time": _api_time(_first_present(battle, "startTime", "StartTime")),
+    }
+    optional_fields = (
+        ("total_kills", ("totalKills", "TotalKills", "total_kills")),
+        ("total_fame", ("totalFame", "TotalFame", "total_fame")),
+        ("total_players", ("totalPlayers", "TotalPlayers", "total_players")),
+        ("cluster_name", ("clusterName", "ClusterName", "cluster_name")),
+    )
+    for output_key, input_keys in optional_fields:
+        value = _first_present(battle, *input_keys)
+        if output_key == "total_players" and not _has_value(value):
+            value = _players_count(_first_present(battle, "players", "Players"))
+        if _has_value(value):
+            row[output_key] = value
+    return row
 
 
 def battle_report_context(report: dict) -> dict:
@@ -159,12 +170,17 @@ def battle_report_context(report: dict) -> dict:
         "guild": {
             "name": report.get("guild_name"),
             "players": int(report.get("guild_players") or 0),
+            "rank": report.get("guild_rank"),
+            "guild_count": int(report.get("guild_count") or 0),
+            "participation_percent": int(report.get("guild_participation_percent") or 0),
+            "kill_death_delta": int(report.get("guild_kill_death_delta") or 0),
             "kill_fame": int(report.get("guild_kill_fame") or 0),
             "kills": int((report.get("guild_row") or {}).get("kills") or 0),
             "deaths": int((report.get("guild_row") or {}).get("deaths") or 0),
         },
         "leaders": {
             "guilds": _ranking_rows(report.get("top_guilds") or []),
+            "enemy_guilds": _ranking_rows(report.get("enemy_guilds") or []),
             "alliances": _ranking_rows(report.get("top_alliances") or []),
         },
         "highlights": {
@@ -243,13 +259,13 @@ def guild_config_context(binding: dict | None) -> dict:
             "kill_broadcast_channel_id": b.get("kill_broadcast_channel_id"),
             "death_broadcast_channel_id": b.get("death_broadcast_channel_id"),
             "battle_report_channel_id": b.get("battle_report_channel_id"),
-            "battle_report_min_guild_players": int(
-                b.get("battle_report_min_guild_players") or 20
+            "battle_report_min_guild_players": max(
+                20, int(b.get("battle_report_min_guild_players") or 20)
             ),
             "member_change_channel_id": b.get("member_change_channel_id"),
             "regear_reviewer_role_count": len(reviewer_roles),
             "trusted_role_count": len(trusted_roles),
-            "kill_fame_threshold": int(b.get("kill_fame_threshold") or 100000),
+            "large_broadcast_rule": "击杀/死亡声望 > 100万，或银币总损失 > 1000万",
         },
     }
 
@@ -281,6 +297,29 @@ def _configured_value(value: object) -> dict[str, object]:
 
 def _split_csv(raw: object) -> list[str]:
     return [p.strip() for p in str(raw or "").split(",") if p.strip()]
+
+
+def _first_present(data: dict, *keys: str) -> object:
+    for key in keys:
+        if key in data:
+            return data[key]
+    return None
+
+
+def _has_value(value: object) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str) and not value.strip():
+        return False
+    return True
+
+
+def _players_count(players: object) -> int | None:
+    if isinstance(players, dict):
+        return len(players)
+    if isinstance(players, list):
+        return len(players)
+    return None
 
 
 def _ranking_rows(rows: list[dict]) -> list[dict]:

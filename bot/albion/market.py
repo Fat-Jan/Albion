@@ -1,4 +1,4 @@
-"""AODP 市场 API 封装（亚服 east）。限流由 client 统一处理。
+"""AODP 市场 API 封装（默认欧服 europe）。限流由 client 统一处理。
 
 估值口径走 history（近 N 天 avg_price）；prices 即时价仅给 /物价。
 """

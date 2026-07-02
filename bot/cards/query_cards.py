@@ -230,7 +230,7 @@ def recent_fights_card(player_name: str, kills: list, deaths: list, n: int = 10)
     klines = [line(e, True) for e in (kills or [])[:n]] or ["（无记录）"]
     dlines = [line(e, False) for e in (deaths or [])[:n]] or ["（无记录）"]
     card = Card(
-        Module.Header(f"{player_name} 最近战斗（时间为北京）"),
+        Module.Header(f"{player_name} 最近战斗（时间为{display_time_prefix()}）"),
         Module.Section(Element.Text(f"**⚔️ 最近击杀 {len(kills or [])}**\n" + "\n".join(klines), Types.Text.KMD)),
         Module.Divider(),
         Module.Section(Element.Text(f"**💀 最近阵亡 {len(deaths or [])}**\n" + "\n".join(dlines), Types.Text.KMD)),
@@ -268,7 +268,7 @@ def valuation_card(player_name: str, event: dict, result: dict) -> CardMessage:
     raw = event.get("TimeStamp", "")
     ts = raw[:19].replace("T", " ")
     bj = beijing(raw)
-    when = f"`{ts} UTC`（北京 {bj}）" if bj else f"`{ts}`"
+    when = f"`{ts} UTC`（{display_time_prefix()} {bj}）" if bj else f"`{ts}`"
     scale = scale_label(event)
     loc_line = f"时间 {when}　IP `{victim.get('AverageItemPower', 0):.0f}`"
     if scale:
@@ -314,7 +314,7 @@ def battles_card(guild_name: str, battles: list) -> CardMessage:
         raw = b.get("startTime") or b.get("StartTime") or ""
         ts = raw[:16].replace("T", " ")
         bj = beijing(raw)
-        when = f"`{ts} UTC`（北京 {bj}）" if bj else f"`{ts}`"
+        when = f"`{ts} UTC`（{display_time_prefix()} {bj}）" if bj else f"`{ts}`"
         kills = b.get("totalKills", "?")
         fame = b.get("totalFame", 0)
         players = b.get("totalPlayers", "?")
@@ -336,7 +336,7 @@ def price_card(rows: list, item_name: str) -> CardMessage:
         lines.append(f"· {city}（Q{q}）`{fmt(sp)}`")
         shown += 1
     if shown == 0:
-        lines.append("各城暂无挂单（亚服市场稀疏）。")
+        lines.append("各城暂无挂单（当前区服市场数据稀疏）。")
     return CardMessage(Card(Module.Section(Element.Text("\n".join(lines), Types.Text.KMD))))
 
 

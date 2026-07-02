@@ -134,7 +134,20 @@ def _looks_mutating(question: str) -> bool:
         return True
     action_to_request = r"(通过|批准|拒绝)\s*(#?\d+|.*(补装|申请))"
     imperative_action = r"(帮我|给我|把|将).*(通过|批准|拒绝|发放|改金额|改成|标记)"
-    return bool(re.search(action_to_request, question) or re.search(imperative_action, question))
+    config_or_binding_action = (
+        r"(帮我|给我|请帮|麻烦).*(绑定公会|解绑公会|设置(?!概况|状态)|"
+        r"提交补装|申请补装|绑定(?!状态)|解绑)"
+    )
+    direct_write_command = (
+        r"^(绑定公会|解绑公会|设置(?!概况|状态)|绑定\s*\S+|解绑\s*\S+|"
+        r"申请补装|提交补装)"
+    )
+    return bool(
+        re.search(action_to_request, question)
+        or re.search(imperative_action, question)
+        or re.search(config_or_binding_action, question)
+        or re.search(direct_write_command, question)
+    )
 
 
 def _is_regear_status_query(question: str) -> bool:
@@ -186,10 +199,10 @@ def _format_guild_config_fallback(facts: dict) -> str:
     lines.append(f"· 旧补装频道兜底：{_configured_text(s.get('regear_channel_id'))}")
     lines.append(f"· 播报频道：{_configured_text(s.get('broadcast_channel_id'))}")
     lines.append(f"· 战报推送频道：{_configured_text(s.get('battle_report_channel_id'))}")
-    lines.append(f"· 战报本会最小人数：{int(s.get('battle_report_min_guild_players') or 20)} 人")
+    lines.append(f"· 战报本会最小人数：{max(20, int(s.get('battle_report_min_guild_players') or 20))} 人")
     lines.append(f"· 补装审核身份组：{int(s.get('regear_reviewer_role_count') or 0)} 个")
     lines.append(f"· 可信身份组：{int(s.get('trusted_role_count') or 0)} 个")
-    lines.append(f"· 大额阈值：{int(s.get('kill_fame_threshold') or 100000):,} fame")
+    lines.append(f"· 大额播报：{s.get('large_broadcast_rule') or '击杀/死亡声望 > 100万，或银币总损失 > 1000万'}")
     return "\n".join(lines)
 
 

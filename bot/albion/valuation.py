@@ -1,4 +1,4 @@
-"""装备 + 背包估值（亚服）。
+"""装备 + 背包估值（按当前配置区服，默认欧服）。
 
 口径（见实现计划第十一节决议）：
 - 主口径取红城（Caerleon）近 N 天 avg_price 的中位（走 AODP /history）。
@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 
 SLOTS = ["MainHand", "OffHand", "Head", "Armor", "Shoes", "Bag", "Cape", "Mount", "Potion", "Food"]
 
-# history 无成交价时回退当前挂单价（派系/Avalon/高tier 武器在亚服无历史成交但有挂单）。
+# history 无成交价时回退当前挂单价（派系/Avalon/高 tier 武器常见历史稀疏但有挂单）。
 # 挂单价常虚高于实际成交，按此折扣保守估。
 FALLBACK_DISCOUNT = 0.85
 FALLBACK_QUALITIES = (1, 2, 3, 4, 5)

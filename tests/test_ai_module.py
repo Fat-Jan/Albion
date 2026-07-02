@@ -2,6 +2,8 @@ import os
 import tempfile
 import unittest
 from datetime import date
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from bot import config
 from bot.ai.client import AIClient, AIClientConfig
@@ -64,6 +66,39 @@ class FakeGameInfo:
         ]
 
 
+class FakeCommandBot:
+    def __init__(self):
+        self.commands = {}
+        self.message_handler = None
+
+    def command(self, *, name):
+        def decorator(func):
+            self.commands[name] = func
+            return func
+
+        return decorator
+
+    def on_message(self):
+        def decorator(func):
+            self.message_handler = func
+            return func
+
+        return decorator
+
+
+def fake_message(*, content="问题", channel_name="普通频道", channel_id="channel-1"):
+    channel = SimpleNamespace(id=channel_id, name=channel_name)
+    guild = SimpleNamespace(id="guild-1")
+    author = SimpleNamespace(id="user-1")
+    return SimpleNamespace(
+        content=content,
+        mention=[],
+        ctx=SimpleNamespace(channel=channel, guild=guild),
+        author=author,
+        author_id=author.id,
+    )
+
+
 class AIClientTest(unittest.IsolatedAsyncioTestCase):
     async def test_ai_client_reads_openai_compatible_chat_completion(self):
         requests = []
@@ -84,9 +119,9 @@ class AIClientTest(unittest.IsolatedAsyncioTestCase):
 
         client = AIClient(
             AIClientConfig(
-                base_url="https://api.longcat.chat/openai",
+                base_url="https://openai-compatible.example/openai",
                 api_key="test-key",
-                model="longcat-test",
+                model="compat-test",
                 timeout=1.0,
                 max_output_tokens=120,
             ),
@@ -101,7 +136,46 @@ class AIClientTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(text, "战报摘要")
         self.assertEqual(requests[0].url.path, "/openai/v1/chat/completions")
         self.assertEqual(requests[0].headers["authorization"], "Bearer test-key")
-        self.assertIn(b"longcat-test", requests[0].content)
+        self.assertIn(b"compat-test", requests[0].content)
+
+    async def test_ai_client_uses_sensenova_v1_url_and_ignores_reasoning_content(self):
+        requests = []
+
+        async def transport_handler(request):
+            requests.append(request)
+            return httpx_response(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "最终摘要",
+                                "reasoning_content": "内部推理不应返回给用户",
+                            }
+                        }
+                    ]
+                }
+            )
+
+        client = AIClient(
+            AIClientConfig(
+                base_url="https://token.sensenova.cn/v1",
+                api_key="test-key",
+                model="deepseek-v4-flash",
+                timeout=1.0,
+                max_output_tokens=2000,
+            ),
+            transport=transport_handler,
+        )
+
+        try:
+            text = await client.complete([{"role": "user", "content": "总结"}])
+        finally:
+            await client.aclose()
+
+        self.assertEqual(text, "最终摘要")
+        self.assertNotIn("内部推理", text)
+        self.assertEqual(requests[0].url.path, "/v1/chat/completions")
+        self.assertIn(b"deepseek-v4-flash", requests[0].content)
 
 
 class AIServiceTest(unittest.IsolatedAsyncioTestCase):
@@ -173,7 +247,7 @@ class AIServiceTest(unittest.IsolatedAsyncioTestCase):
         text = await service.summarize_battle_report(
             {
                 "battle_id": "123",
-                "battle_url": "https://east.albionbb.com/battles/123",
+                "battle_url": "https://europe.albionbb.com/battles/123",
                 "guild_name": "Mika",
                 "start_time": "2026-06-14T10:00:00",
                 "total_players": 6,
@@ -193,6 +267,22 @@ class AIServiceTest(unittest.IsolatedAsyncioTestCase):
         prompt = "\n".join(m["content"] for m in client.calls[0]["messages"])
         self.assertIn("battle_report_summary", prompt)
         self.assertIn("不要编造地图、战术", prompt)
+
+    async def test_summarize_battles_hides_missing_api_fields_from_users(self):
+        client = FakeAIClient("最近有战役记录，击杀和 Fame 有波动。")
+        service = AIService(client, enabled=True)
+
+        await service.summarize_battles(
+            "Top Squad",
+            [{"id": 1, "startTime": "2026-06-15T16:20:34Z", "totalPlayers": None}],
+        )
+
+        prompt = "\n".join(m["content"] for m in client.calls[0]["messages"])
+        self.assertNotIn('"total_players":null', prompt)
+        self.assertNotIn('"total_kills":null', prompt)
+        self.assertNotIn('"total_fame":null', prompt)
+        self.assertIn("不要输出字段名、null", prompt)
+        self.assertIn("缺失字段直接略过", prompt)
 
     async def test_service_blocks_unsafe_action_claims_and_redacts_secrets(self):
         client = FakeAIClient("已批准 #1，KOOK_TOKEN=secret，Bearer abc123，ak_2Ia6kF9TM5q36dQ7G27382BO2cl7B")
@@ -349,6 +439,52 @@ class AIRouterTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn(f"#{other_id}", text)
 
 
+class AIRegistrationTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.bot = FakeCommandBot()
+        self.service = AIService(FakeAIClient("AI 说明"), enabled=True)
+
+    def register(self):
+        with patch.object(
+            ai_commands.config,
+            "token_runtime_info",
+            return_value={"bot_id": "49050", "fingerprint": "fp", "source": "test"},
+        ):
+            ai_commands.register(
+                self.bot,
+                self.service,
+                FakeGameInfo(),
+                SimpleNamespace(),
+                region="eu",
+            )
+
+    async def test_assistant_command_allows_generic_channel_but_rejects_other_region(self):
+        self.register()
+        with patch.object(ai_commands, "_reply_assistant", new=AsyncMock()) as reply:
+            await self.bot.commands["助手"](
+                fake_message(channel_name="普通频道"),
+                "我的绑定状态",
+            )
+            await self.bot.commands["助手"](
+                fake_message(channel_name="asia-机器人测试"),
+                "我的绑定状态",
+            )
+
+        reply.assert_awaited_once()
+
+    async def test_bot_mention_allows_generic_channel_but_rejects_other_region(self):
+        self.register()
+        with patch.object(ai_commands, "_reply_assistant", new=AsyncMock()) as reply:
+            await self.bot.message_handler(
+                fake_message(content="(met)49050(met) 我的绑定状态", channel_name="普通频道")
+            )
+            await self.bot.message_handler(
+                fake_message(content="(met)49050(met) 我的绑定状态", channel_name="asia-机器人测试")
+            )
+
+        reply.assert_awaited_once()
+
+
 class AIContextTest(unittest.TestCase):
     def test_core_contexts_include_schema_version(self):
         self.assertIn(
@@ -440,6 +576,52 @@ class AIContextTest(unittest.TestCase):
             "2026-06-14 18:00 UTC+8（北京时间）",
         )
 
+    def test_battles_context_omits_unknown_optional_metrics(self):
+        context = battles_context(
+            "Top Squad",
+            [
+                {
+                    "id": 1,
+                    "startTime": "2026-06-15T16:20:34Z",
+                    "totalKills": None,
+                    "totalFame": "",
+                    "totalPlayers": None,
+                }
+            ],
+        )
+
+        battle = context["battles"][0]
+        self.assertNotIn("total_players", battle)
+        self.assertNotIn("total_kills", battle)
+        self.assertNotIn("total_fame", battle)
+
+    def test_battles_context_derives_total_players_from_players_collection(self):
+        context = battles_context(
+            "Top Squad",
+            [
+                {
+                    "id": 1,
+                    "startTime": "2026-06-15T16:20:34Z",
+                    "players": {
+                        "p1": {"name": "A"},
+                        "p2": {"name": "B"},
+                    },
+                    "clusterName": "",
+                },
+                {
+                    "id": 2,
+                    "StartTime": "2026-06-15T16:30:00Z",
+                    "Players": [{"name": "A"}, {"name": "B"}, {"name": "C"}],
+                    "clusterName": "Rivercopse Fount",
+                },
+            ],
+        )
+
+        self.assertEqual(context["battles"][0]["total_players"], 2)
+        self.assertNotIn("cluster_name", context["battles"][0])
+        self.assertEqual(context["battles"][1]["total_players"], 3)
+        self.assertEqual(context["battles"][1]["cluster_name"], "Rivercopse Fount")
+
     def test_battle_report_date_arg_filters_beijing_night_window(self):
         target = ai_commands._parse_battle_report_date(
             ("6-15",), today=date(2026, 6, 16)
@@ -459,11 +641,102 @@ class AIContextTest(unittest.TestCase):
             ["target-evening", "target-after-midnight"],
         )
 
+    def test_mention_intent_routes_battle_report_readonly_action(self):
+        intent = ai_commands._parse_mention_intent("帮我调用战报")
+
+        self.assertEqual(intent.action, "battle_report")
+        self.assertEqual(intent.args, ())
+
+    def test_mention_intent_keeps_battle_report_date_argument(self):
+        intent = ai_commands._parse_mention_intent("帮我看一下 6-15 的战报")
+
+        self.assertEqual(intent.action, "battle_report")
+        self.assertEqual(intent.args, ("6-15",))
+
+    def test_mention_intent_treats_last_night_as_yesterday_battle_report(self):
+        intent = ai_commands._parse_mention_intent(
+            "帮我调一下昨晚的战报", today=date(2026, 6, 16)
+        )
+
+        self.assertEqual(intent.action, "battle_report")
+        self.assertEqual(intent.args, ("6-15",))
+
+    def test_mention_intent_routes_dated_battle_words_to_battle_report(self):
+        cases = [
+            ("帮我调一下昨晚的战役", ("6-15",)),
+            ("帮我调昨天晚上的战役", ("6-15",)),
+            ("帮我调 6-15 晚上的战役", ("6-15",)),
+            ("帮我看 6月15日晚上的战役", ("6月15日",)),
+        ]
+
+        for question, args in cases:
+            with self.subTest(question=question):
+                intent = ai_commands._parse_mention_intent(
+                    question, today=date(2026, 6, 16)
+                )
+                self.assertEqual(intent.action, "battle_report")
+                self.assertEqual(intent.args, args)
+
+    def test_mention_intent_does_not_route_mutating_request_to_command(self):
+        dangerous_questions = [
+            "帮我批准 1 号补装并发身份组",
+            "帮我绑定 Latano",
+            "帮我绑定公会 Top Squad",
+            "帮我设置战报推送频道",
+            "帮我提交补装申请",
+            "帮我解绑这个成员",
+        ]
+
+        for question in dangerous_questions:
+            with self.subTest(question=question):
+                intent = ai_commands._parse_mention_intent(question)
+                self.assertEqual(intent.action, "assistant")
+                self.assertEqual(intent.question, question)
+
+    def test_mention_intent_routes_readonly_query_commands(self):
+        cases = [
+            ("查一下我的战绩", "stats", ()),
+            ("查一下 Latano 的战绩", "stats", ("Latano",)),
+            ("战绩 Latano", "stats", ("Latano",)),
+            ("估一下 Latano 最近死亡", "valuation", ("Latano",)),
+            ("估值 Latano", "valuation", ("Latano",)),
+            ("查金价", "gold", ()),
+            ("查一下老手级双剑物价", "price", ("老手级双剑",)),
+            ("看 pve 榜单", "rank", ("pve",)),
+            ("看最近战役", "battles", ()),
+        ]
+
+        for question, action, args in cases:
+            with self.subTest(question=question):
+                intent = ai_commands._parse_mention_intent(question)
+                self.assertEqual(intent.action, action)
+                self.assertEqual(intent.args, args)
+
+    def test_strip_bot_mention_removes_kook_met_token(self):
+        text = ai_commands._strip_bot_mention("(met)49050(met) 帮我调用战报", "49050")
+
+        self.assertEqual(text, "帮我调用战报")
+
+    def test_configured_display_name_mention_triggers_and_is_removed(self):
+        msg = SimpleNamespace(content="@欧罗巴版Jianguomao 帮我调用战报", mention=[])
+
+        self.assertTrue(
+            ai_commands._message_mentions_bot(
+                msg, "49050", names=("欧罗巴版Jianguomao",)
+            )
+        )
+        self.assertEqual(
+            ai_commands._strip_bot_mention(
+                msg.content, "49050", names=("欧罗巴版Jianguomao",)
+            ),
+            "帮我调用战报",
+        )
+
     def test_battle_report_context_is_safe_and_readonly(self):
         context = battle_report_context(
             {
                 "battle_id": "123",
-                "battle_url": "https://east.albionbb.com/battles/123",
+                "battle_url": "https://europe.albionbb.com/battles/123",
                 "guild_name": "Mika",
                 "start_time": "2026-06-14T10:00:00",
                 "total_players": 6,
@@ -471,8 +744,13 @@ class AIContextTest(unittest.TestCase):
                 "total_fame": 1234567,
                 "guild_players": 3,
                 "guild_kill_fame": 32000,
+                "guild_rank": 1,
+                "guild_count": 3,
+                "guild_participation_percent": 50,
+                "guild_kill_death_delta": 1,
                 "guild_row": {"kills": 4, "deaths": 3},
                 "top_guilds": [{"name": "Mika", "players": 3, "kills": 4, "deaths": 3}],
+                "enemy_guilds": [{"name": "CCTV", "players": 2, "kills": 3, "deaths": 3}],
                 "top_alliances": [{"name": "5I7", "players": 3, "kills": 4, "deaths": 3}],
                 "player_highlights": {"most_deaths": {"name": "Bob", "deaths": 2}},
             }
@@ -480,7 +758,11 @@ class AIContextTest(unittest.TestCase):
 
         self.assertEqual(context["tool"], "battle_report_summary")
         self.assertEqual(context["guild"]["players"], 3)
+        self.assertEqual(context["guild"]["rank"], 1)
+        self.assertEqual(context["guild"]["participation_percent"], 50)
+        self.assertEqual(context["guild"]["kill_death_delta"], 1)
         self.assertEqual(context["leaders"]["guilds"][0]["name"], "Mika")
+        self.assertEqual(context["leaders"]["enemy_guilds"][0]["name"], "CCTV")
         self.assertEqual(context["highlights"]["most_deaths"]["name"], "Bob")
         self.assertTrue(context["policy"]["readonly_summary_only"])
 
@@ -538,7 +820,7 @@ class AIContextTest(unittest.TestCase):
                 "kill_broadcast_channel_id": None,
                 "death_broadcast_channel_id": None,
                 "battle_report_channel_id": "battle-report",
-                "battle_report_min_guild_players": 25,
+                "battle_report_min_guild_players": 5,
                 "member_change_channel_id": None,
                 "regear_channel_id": "regear",
                 "regear_apply_channel_id": "regear-apply",
@@ -547,7 +829,6 @@ class AIContextTest(unittest.TestCase):
                 "regear_notify_channel_id": "regear-notify",
                 "regear_reviewer_role_ids": "role-a,role-b",
                 "trusted_role_ids": "",
-                "kill_fame_threshold": 100000,
                 "created_by": "admin-user",
             }
         )
@@ -559,7 +840,12 @@ class AIContextTest(unittest.TestCase):
         self.assertEqual(context["settings"]["regear_payout_channel_id"], "regear-payout")
         self.assertEqual(context["settings"]["regear_notify_channel_id"], "regear-notify")
         self.assertEqual(context["settings"]["battle_report_channel_id"], "battle-report")
-        self.assertEqual(context["settings"]["battle_report_min_guild_players"], 25)
+        self.assertEqual(context["settings"]["battle_report_min_guild_players"], 20)
+        self.assertEqual(
+            context["settings"]["large_broadcast_rule"],
+            "击杀/死亡声望 > 100万，或银币总损失 > 1000万",
+        )
+        self.assertNotIn("kill_fame_threshold", context["settings"])
         self.assertEqual(context["settings"]["regear_reviewer_role_count"], 2)
         self.assertNotIn("created_by", context)
 
@@ -587,5 +873,5 @@ def httpx_response(payload):
 
     import httpx
 
-    request = httpx.Request("POST", "https://api.longcat.chat/openai/v1/chat/completions")
+    request = httpx.Request("POST", "https://openai-compatible.example/openai/v1/chat/completions")
     return httpx.Response(200, json=payload, request=request)

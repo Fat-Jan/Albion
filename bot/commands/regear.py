@@ -8,7 +8,7 @@ import logging
 
 from khl import Bot, EventTypes, Message
 
-from bot import perms
+from bot import perms, region_scope
 from bot.ai.context import regear_explain_context
 from bot.ai.service import AIService
 from bot.albion import valuation
@@ -105,12 +105,44 @@ def _regear_approval_channel(guild_binding: dict | None) -> str | None:
     return _regear_review_channel(guild_binding)
 
 
-async def _send_regear_notice(b: Bot, guild_binding: dict | None, payload) -> None:
+async def _fetch_configured_channel(
+    b: Bot,
+    guild_binding: dict | None,
+    channel_id: str,
+    fields: tuple[str, ...],
+    *,
+    region: str = "eu",
+):
+    channel = await b.client.fetch_public_channel(channel_id)
+    if not region_scope.configured_channel_matches_region(
+        guild_binding, channel_id, fields, channel, region=region
+    ):
+        log.warning(
+            "跳过非本区补装配置频道 channel=%s fields=%s name=%s",
+            channel_id,
+            ",".join(fields),
+            getattr(channel, "name", None),
+        )
+        return None
+    return channel
+
+
+async def _send_regear_notice(
+    b: Bot, guild_binding: dict | None, payload, *, region: str = "eu"
+) -> None:
     notify_channel_id = _regear_notify_channel(guild_binding)
     if not notify_channel_id:
         return
     try:
-        notify_channel = await b.client.fetch_public_channel(notify_channel_id)
+        notify_channel = await _fetch_configured_channel(
+            b,
+            guild_binding,
+            notify_channel_id,
+            ("regear_notify_channel_id", "regear_channel_id", "approval_channel_id"),
+            region=region,
+        )
+        if not notify_channel:
+            return
         await notify_channel.send(payload)
     except Exception as exc:
         log.warning("发送补装通知失败 channel=%s: %s", notify_channel_id, exc)
@@ -120,16 +152,31 @@ def _regear_reviewer_notify_channel(guild_binding: dict | None) -> str | None:
     return _first_channel(guild_binding, "member_change_channel_id", "approval_channel_id")
 
 
-async def _send_regear_reviewer_notice(b: Bot, guild_binding: dict | None, fallback_channel, payload) -> None:
+async def _send_regear_reviewer_notice(
+    b: Bot,
+    guild_binding: dict | None,
+    fallback_channel,
+    payload,
+    *,
+    region: str = "eu",
+) -> None:
     channel_id = _regear_reviewer_notify_channel(guild_binding)
     if not channel_id:
         await fallback_channel.send(payload)
         return
     try:
-        channel = await b.client.fetch_public_channel(channel_id)
+        channel = await _fetch_configured_channel(
+            b,
+            guild_binding,
+            channel_id,
+            ("member_change_channel_id", "approval_channel_id"),
+            region=region,
+        )
     except Exception as exc:
         log.warning("拉取补装审核身份通知频道失败 channel=%s: %s", channel_id, exc)
         await fallback_channel.send(payload)
+        return
+    if not channel:
         return
     await channel.send(payload)
 
@@ -215,29 +262,44 @@ def _has_regear_reviewer_role(user, guild_binding: dict | None) -> bool:
     return bool(configured & user_roles)
 
 
-async def _can_manage_regear(guild, user, guild_binding: dict | None = None) -> bool:
+async def _can_manage_regear(
+    guild, user, guild_binding: dict | None = None, *, region: str = "eu"
+) -> bool:
     if await perms.is_guild_admin(guild, user):
         return True
-    binding = guild_binding if guild_binding is not None else repo.get_guild_binding(guild.id)
+    binding = (
+        guild_binding
+        if guild_binding is not None
+        else repo.get_guild_binding(guild.id, region)
+    )
     return _has_regear_reviewer_role(user, binding)
 
 
-def register(bot: Bot, gi: GameInfo, mk: Market, ai_service: AIService | None = None) -> None:
+def register(
+    bot: Bot,
+    gi: GameInfo,
+    mk: Market,
+    ai_service: AIService | None = None,
+    *,
+    region: str = "eu",
+) -> None:
     @bot.command(name="补装")
     async def regear_cmd(msg: Message, *args):
+        if not region_scope.should_process_message(msg, region=region):
+            return
         if args:
             if args[0] in ("状态", "进度", "我的"):
-                await _handle_status_cmd(msg)
+                await _handle_status_cmd(msg, region=region)
                 return
-            await _handle_queue_cmd(bot, gi, mk, msg, args)
+            await _handle_queue_cmd(bot, gi, mk, msg, args, region=region)
             return
 
         kgid = msg.ctx.guild.id
-        binding = repo.get_player_binding(msg.author.id, kgid)
+        binding = repo.get_player_binding(msg.author.id, kgid, region)
         if not binding:
             await msg.reply("请先 /绑定 你的游戏角色，再申请补装。")
             return
-        gbind = repo.get_guild_binding(kgid)
+        gbind = repo.get_guild_binding(kgid, region)
         if not _regear_review_channel(gbind):
             await msg.reply("管理员还没 /设置 补装审核频道，暂时无法申请补装。")
             return
@@ -255,13 +317,17 @@ def register(bot: Bot, gi: GameInfo, mk: Market, ai_service: AIService | None = 
 
     @bot.command(name="补装状态")
     async def regear_status_cmd(msg: Message, *args):
-        await _handle_status_cmd(msg)
+        if not region_scope.should_process_message(msg, region=region):
+            return
+        await _handle_status_cmd(msg, region=region)
 
     @bot.command(name="补装审核")
     async def regear_reviewer_cmd(msg: Message, *args):
+        if not region_scope.should_process_message(msg, region=region):
+            return
         kgid = msg.ctx.guild.id
         kuid = msg.author.id
-        gbind = repo.get_guild_binding(kgid)
+        gbind = repo.get_guild_binding(kgid, region)
         if not gbind:
             await msg.reply("本服还没绑定公会，请管理员先 /绑定公会。")
             return
@@ -271,7 +337,7 @@ def register(bot: Bot, gi: GameInfo, mk: Market, ai_service: AIService | None = 
         if _has_regear_reviewer_role(msg.author, gbind):
             await msg.reply("你已经有补装审核身份组了。")
             return
-        if repo.get_open_regear_reviewer_request(kgid, kuid):
+        if repo.get_open_regear_reviewer_request(kgid, region, kuid):
             await msg.reply("你已有一条补装审核身份申请正在审批中，请耐心等待。")
             return
         approval_channel_id = gbind.get("approval_channel_id") or _regear_approval_channel(gbind)
@@ -279,9 +345,17 @@ def register(bot: Bot, gi: GameInfo, mk: Market, ai_service: AIService | None = 
             await msg.reply("管理员还没 /设置 审批频道，暂时无法提交补装审核身份申请。")
             return
 
-        request_id = repo.create_regear_reviewer_request(kgid, kuid)
+        request_id = repo.create_regear_reviewer_request(kgid, region, kuid)
         try:
-            approval = await bot.client.fetch_public_channel(approval_channel_id)
+            approval = await _fetch_configured_channel(
+                bot,
+                gbind,
+                approval_channel_id,
+                ("approval_channel_id", "regear_review_channel_id", "regear_channel_id"),
+                region=region,
+            )
+            if not approval:
+                raise ValueError("approval channel is outside current region scope")
             sent = await approval.send(regear_reviewer_apply_card(request_id, kuid))
             msg_id = sent.get("msg_id") if isinstance(sent, dict) else None
             if msg_id:
@@ -320,15 +394,46 @@ def register(bot: Bot, gi: GameInfo, mk: Market, ai_service: AIService | None = 
         except Exception as exc:
             log.warning("拉取频道失败: %s", exc)
             return
+        gbind = repo.get_guild_binding(guild_id, region)
+        regear_fields = (
+            "regear_apply_channel_id",
+            "regear_review_channel_id",
+            "regear_payout_channel_id",
+            "regear_notify_channel_id",
+            "regear_channel_id",
+            "approval_channel_id",
+            "member_change_channel_id",
+        )
+        if not (
+            region_scope.channel_matches_region(channel, region=region)
+            or region_scope.configured_channel_matches_region(
+                gbind, channel_id, regear_fields, channel, region=region
+            )
+        ):
+            return
 
         if act == "regear_detail":
             await _handle_detail(b, gi, mk, val, channel)
         elif act == "regear_pick":
-            await _handle_pick(b, gi, mk, val, guild_id, clicker, channel, ai_service=ai_service)
+            await _handle_pick(
+                b,
+                gi,
+                mk,
+                val,
+                guild_id,
+                clicker,
+                channel,
+                ai_service=ai_service,
+                region=region,
+            )
         elif act in ("regear_reviewer_approve", "regear_reviewer_reject"):
-            await _handle_reviewer_request_review(b, act, val, guild_id, clicker, channel)
+            await _handle_reviewer_request_review(
+                b, act, val, guild_id, clicker, channel, region=region
+            )
         else:
-            await _handle_review(b, gi, mk, act, val, guild_id, clicker, channel)
+            await _handle_review(
+                b, gi, mk, act, val, guild_id, clicker, channel, region=region
+            )
 
 
 async def _load_regear_valuation(regear_row: dict, gi: GameInfo, mk: Market) -> tuple[dict | None, dict | None]:
@@ -364,13 +469,15 @@ async def _update_regear_source_card(b: Bot, regear_row: dict, card) -> bool:
     return await update_public_message(b.client, regear_row.get("message_id"), card)
 
 
-async def _handle_queue_cmd(b: Bot, gi: GameInfo, mk: Market, msg: Message, args):
+async def _handle_queue_cmd(
+    b: Bot, gi: GameInfo, mk: Market, msg: Message, args, *, region: str = "eu"
+):
     key = args[0]
     if key in ("拒绝", "驳回"):
-        await _handle_reject_cmd(b, gi, mk, msg, args)
+        await _handle_reject_cmd(b, gi, mk, msg, args, region=region)
         return
     if key in ("发放", "已发放"):
-        await _handle_paid_cmd(b, gi, mk, msg, args)
+        await _handle_paid_cmd(b, gi, mk, msg, args, region=region)
         return
     if key not in _QUEUE_FILTERS:
         await msg.reply(
@@ -378,16 +485,18 @@ async def _handle_queue_cmd(b: Bot, gi: GameInfo, mk: Market, msg: Message, args
             "`/补装 拒绝 #申请号 理由`、`/补装 发放 #申请号 银币|装备|物品 [备注]`"
         )
         return
-    gbind = repo.get_guild_binding(msg.ctx.guild.id)
-    if not await _can_manage_regear(msg.ctx.guild, msg.author, gbind):
+    gbind = repo.get_guild_binding(msg.ctx.guild.id, region)
+    if not await _can_manage_regear(msg.ctx.guild, msg.author, gbind, region=region):
         await msg.reply("⛔ 只有管理员或补装审核身份组可以查看补装队列。")
         return
     statuses = _QUEUE_FILTERS[key]
-    rows = repo.list_regear(msg.ctx.guild.id, statuses=statuses, limit=10)
+    rows = repo.list_regear(msg.ctx.guild.id, region, statuses=statuses, limit=10)
     await msg.reply(regear_queue_card(f"补装{key}", rows))
 
 
-async def _handle_reject_cmd(b: Bot, gi: GameInfo, mk: Market, msg: Message, args):
+async def _handle_reject_cmd(
+    b: Bot, gi: GameInfo, mk: Market, msg: Message, args, *, region: str = "eu"
+):
     if len(args) < 3:
         await msg.reply("用法：`/补装 拒绝 #申请号 理由文本`")
         return
@@ -396,12 +505,12 @@ async def _handle_reject_cmd(b: Bot, gi: GameInfo, mk: Market, msg: Message, arg
     if not rid or not reason:
         await msg.reply("用法：`/补装 拒绝 #申请号 理由文本`")
         return
-    gbind = repo.get_guild_binding(msg.ctx.guild.id)
-    if not await _can_manage_regear(msg.ctx.guild, msg.author, gbind):
+    gbind = repo.get_guild_binding(msg.ctx.guild.id, region)
+    if not await _can_manage_regear(msg.ctx.guild, msg.author, gbind, region=region):
         await msg.reply("⛔ 只有管理员或补装审核身份组可以拒绝补装。")
         return
     rr = repo.get_regear(rid)
-    if not rr or rr.get("kook_guild_id") != msg.ctx.guild.id:
+    if not rr or rr.get("kook_guild_id") != msg.ctx.guild.id or rr.get("region") != region:
         await msg.reply("没有找到这条补装申请。")
         return
     if rr.get("status") != "pending":
@@ -413,10 +522,12 @@ async def _handle_reject_cmd(b: Bot, gi: GameInfo, mk: Market, msg: Message, arg
     card = regear_notice_card(rr, ev, result)
     await _update_regear_source_card(b, rr, card)
     await msg.reply(card)
-    await _send_regear_notice(b, gbind, card)
+    await _send_regear_notice(b, gbind, card, region=region)
 
 
-async def _handle_paid_cmd(b: Bot, gi: GameInfo, mk: Market, msg: Message, args):
+async def _handle_paid_cmd(
+    b: Bot, gi: GameInfo, mk: Market, msg: Message, args, *, region: str = "eu"
+):
     if len(args) < 3:
         await msg.reply("用法：`/补装 发放 #申请号 银币|装备|物品 [备注]`")
         return
@@ -426,12 +537,12 @@ async def _handle_paid_cmd(b: Bot, gi: GameInfo, mk: Market, msg: Message, args)
     if not rid or not method:
         await msg.reply("用法：`/补装 发放 #申请号 银币|装备|物品 [备注]`")
         return
-    gbind = repo.get_guild_binding(msg.ctx.guild.id)
-    if not await _can_manage_regear(msg.ctx.guild, msg.author, gbind):
+    gbind = repo.get_guild_binding(msg.ctx.guild.id, region)
+    if not await _can_manage_regear(msg.ctx.guild, msg.author, gbind, region=region):
         await msg.reply("⛔ 只有管理员或补装审核身份组可以标记发放。")
         return
     rr = repo.get_regear(rid)
-    if not rr or rr.get("kook_guild_id") != msg.ctx.guild.id:
+    if not rr or rr.get("kook_guild_id") != msg.ctx.guild.id or rr.get("region") != region:
         await msg.reply("没有找到这条补装申请。")
         return
     if rr.get("status") != "approved":
@@ -443,11 +554,11 @@ async def _handle_paid_cmd(b: Bot, gi: GameInfo, mk: Market, msg: Message, args)
     card = regear_notice_card(rr, ev, result)
     await _update_regear_source_card(b, rr, card)
     await msg.reply(card)
-    await _send_regear_notice(b, gbind, card)
+    await _send_regear_notice(b, gbind, card, region=region)
 
 
-async def _handle_status_cmd(msg: Message):
-    rows = repo.list_user_regear(msg.ctx.guild.id, msg.author.id, limit=5)
+async def _handle_status_cmd(msg: Message, *, region: str = "eu"):
+    rows = repo.list_user_regear(msg.ctx.guild.id, region, msg.author.id, limit=5)
     await msg.reply(_regear_status_text(rows))
 
 
@@ -520,12 +631,23 @@ async def _handle_detail(b, gi, mk, val, channel):
     await channel.send(death_detail_card(victim_name, ev, result, battle_players))
 
 
-async def _handle_pick(b, gi, mk, val, guild_id, clicker, channel, ai_service: AIService | None = None):
-    binding = repo.get_player_binding(clicker, guild_id)
+async def _handle_pick(
+    b,
+    gi,
+    mk,
+    val,
+    guild_id,
+    clicker,
+    channel,
+    ai_service: AIService | None = None,
+    *,
+    region: str = "eu",
+):
+    binding = repo.get_player_binding(clicker, guild_id, region)
     if not binding:
         await channel.send("请先 /绑定 角色再申请补装。")
         return
-    gbind = repo.get_guild_binding(guild_id)
+    gbind = repo.get_guild_binding(guild_id, region)
     review_channel_id = _regear_review_channel(gbind)
     if not review_channel_id:
         await channel.send("管理员还没 /设置 补装审核频道。")
@@ -540,7 +662,7 @@ async def _handle_pick(b, gi, mk, val, guild_id, clicker, channel, ai_service: A
         return
 
     rid = repo.create_regear(
-        guild_id, clicker, binding["albion_player_id"], str(eid), result["total"]
+        guild_id, region, clicker, binding["albion_player_id"], str(eid), result["total"]
     )
     rr = repo.get_regear(rid) or {
         "id": rid,
@@ -550,7 +672,15 @@ async def _handle_pick(b, gi, mk, val, guild_id, clicker, channel, ai_service: A
     }
     ai_hint = await _ai_regear_hint(ai_service, rr, ev, result)
     try:
-        review_channel = await b.client.fetch_public_channel(review_channel_id)
+        review_channel = await _fetch_configured_channel(
+            b,
+            gbind,
+            review_channel_id,
+            ("regear_review_channel_id", "regear_channel_id", "approval_channel_id"),
+            region=region,
+        )
+        if not review_channel:
+            raise ValueError("review channel is outside current region scope")
         sent = await review_channel.send(
             regear_apply_card(
                 rid,
@@ -590,7 +720,9 @@ async def _refresh_regear_estimate(regear_id: int, gi: GameInfo, mk: Market) -> 
     return int(result["total"])
 
 
-async def _handle_review(b, gi, mk, act, val, guild_id, clicker, channel):
+async def _handle_review(
+    b, gi, mk, act, val, guild_id, clicker, channel, *, region: str = "eu"
+):
     try:
         guild = await b.client.fetch_guild(guild_id)
         clicker_user = await guild.fetch_user(clicker)
@@ -598,14 +730,14 @@ async def _handle_review(b, gi, mk, act, val, guild_id, clicker, channel):
         log.warning("拉取公会/点击者失败: %s", exc)
         await channel.send("⚠️ 校验权限失败，稍后再试。")
         return
-    gbind = repo.get_guild_binding(guild_id)
-    if not await _can_manage_regear(guild, clicker_user, gbind):
+    gbind = repo.get_guild_binding(guild_id, region)
+    if not await _can_manage_regear(guild, clicker_user, gbind, region=region):
         await channel.send("⛔ 只有管理员或补装审核身份组可以审批补装。")
         return
 
     rid = val.get("rid")
     rr = repo.get_regear(rid)
-    if not rr:
+    if not rr or rr.get("kook_guild_id") != guild_id or rr.get("region") != region:
         await channel.send(f"没有找到补装申请 `#{rid or '?'}`，可能已删除或按钮来自旧消息。")
         return
 
@@ -625,7 +757,7 @@ async def _handle_review(b, gi, mk, act, val, guild_id, clicker, channel):
         card = regear_notice_card(rr, ev, result)
         await _update_regear_source_card(b, rr, card)
         await channel.send(card)
-        await _send_regear_notice(b, gbind, card)
+        await _send_regear_notice(b, gbind, card, region=region)
         return
 
     if rr["status"] != "pending":
@@ -643,7 +775,7 @@ async def _handle_review(b, gi, mk, act, val, guild_id, clicker, channel):
         card = regear_notice_card(rr, ev, result)
         await _update_regear_source_card(b, rr, card)
         await channel.send(card)
-        await _send_regear_notice(b, gbind, card)
+        await _send_regear_notice(b, gbind, card, region=region)
         return
     ev = None
     result = None
@@ -656,13 +788,21 @@ async def _handle_review(b, gi, mk, act, val, guild_id, clicker, channel):
     rr = repo.get_regear(rid) or rr
     notice_card = regear_notice_card(rr, ev, result)
     await _update_regear_source_card(b, rr, notice_card)
-    await _send_regear_notice(b, gbind, notice_card)
+    await _send_regear_notice(b, gbind, notice_card, region=region)
     payout_channel_id = _regear_payout_channel(gbind)
     if not payout_channel_id or payout_channel_id == getattr(channel, "id", None):
         await channel.send(regear_approved_card(rr, ev, result))
         return
     try:
-        payout_channel = await b.client.fetch_public_channel(payout_channel_id)
+        payout_channel = await _fetch_configured_channel(
+            b,
+            gbind,
+            payout_channel_id,
+            ("regear_payout_channel_id", "regear_channel_id", "approval_channel_id"),
+            region=region,
+        )
+        if not payout_channel:
+            raise ValueError("payout channel is outside current region scope")
         sent = await payout_channel.send(regear_approved_card(rr, ev, result))
         msg_id = sent.get("msg_id") if isinstance(sent, dict) else None
         if msg_id:
@@ -674,7 +814,9 @@ async def _handle_review(b, gi, mk, act, val, guild_id, clicker, channel):
         await channel.send(regear_approved_card(rr, ev, result))
 
 
-async def _handle_reviewer_request_review(b, act, val, guild_id, clicker, channel):
+async def _handle_reviewer_request_review(
+    b, act, val, guild_id, clicker, channel, *, region: str = "eu"
+):
     try:
         guild = await b.client.fetch_guild(guild_id)
         clicker_user = await guild.fetch_user(clicker)
@@ -688,7 +830,7 @@ async def _handle_reviewer_request_review(b, act, val, guild_id, clicker, channe
 
     request_id = val.get("rid")
     req = repo.get_regear_reviewer_request(request_id)
-    if not req:
+    if not req or req.get("kook_guild_id") != guild_id or req.get("region") != region:
         await channel.send(f"没有找到补装审核身份申请 `#{request_id or '?'}`，可能已删除或按钮来自旧消息。")
         return
     if req["status"] != "pending":
@@ -700,10 +842,12 @@ async def _handle_reviewer_request_review(b, act, val, guild_id, clicker, channe
         req = repo.get_regear_reviewer_request(request_id) or req
         card = regear_reviewer_result_card(req)
         await update_public_message(b.client, req.get("message_id"), card)
-        await _send_regear_reviewer_notice(b, repo.get_guild_binding(guild_id), channel, card)
+        await _send_regear_reviewer_notice(
+            b, repo.get_guild_binding(guild_id, region), channel, card, region=region
+        )
         return
 
-    binding = repo.get_guild_binding(guild_id)
+    binding = repo.get_guild_binding(guild_id, region)
     role_ids = sorted(_configured_regear_reviewer_roles(binding))
     if not role_ids:
         await channel.send("⚠️ 未设置补装审核身份组，无法通过。请先 `/设置 补装审核身份组 @身份组`。")
@@ -724,4 +868,4 @@ async def _handle_reviewer_request_review(b, act, val, guild_id, clicker, channe
         notice_warnings.append("部分身份组发放失败，请检查 bot 身份组排序和管理身份组权限：" + " ".join(warnings))
     card = regear_reviewer_result_card(req, warnings=notice_warnings)
     await update_public_message(b.client, req.get("message_id"), card)
-    await _send_regear_reviewer_notice(b, binding, channel, card)
+    await _send_regear_reviewer_notice(b, binding, channel, card, region=region)

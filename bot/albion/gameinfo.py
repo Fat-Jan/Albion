@@ -1,4 +1,4 @@
-"""官方 Gameinfo API 封装（亚服 gameinfo-sgp）。
+"""官方 Gameinfo API 封装（默认欧服 gameinfo-ams，可由配置切区）。
 
 要点：玩家/公会先 /search 拿 base64 ID 再查详情。只实现机器人用得到的端点。
 """

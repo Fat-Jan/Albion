@@ -19,7 +19,7 @@ class CompletionClient(Protocol):
 
 
 SYSTEM_POLICY = (
-    "你是 Albion Online 亚服单公会 KOOK 机器人里的 AI 辅助说明层。"
+    "你是 Albion Online 欧服单公会 KOOK 机器人里的 AI 辅助说明层。"
     "你只能解释、总结和引导，不能批准绑定、不能批准补装、不能改写补装金额、"
     "不能撤销或发放身份组、不能标记补装已发放。"
     "所有金额、状态和权限以事实包为准。回答使用简洁中文，最多 8 行。"
@@ -93,7 +93,9 @@ class AIService:
         facts = battles_context(guild_name, battles)
         prompt = (
             "请基于下面 JSON 事实包生成公会战报摘要。"
-            "只总结趋势、活跃度和可观察事实，不要编造地图、战术或 API 未提供的信息。\n"
+            "只总结趋势、活跃度和可观察事实，不要编造地图、战术或 API 未提供的信息。"
+            "不要输出字段名、null、无法判断参战人数或“无 API 提供”等缺字段说明；"
+            "缺失字段直接略过。\n"
             "如果提到时间，优先同时写出服务器/API 时间 UTC 和北京时间 UTC+8。\n"
             f"JSON 事实包：{json.dumps(facts, ensure_ascii=False, separators=(',', ':'))}"
         )

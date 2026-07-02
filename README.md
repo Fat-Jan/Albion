@@ -1,20 +1,29 @@
 # 阿尔比恩公会 KOOK 机器人
 
-面向《Albion Online》亚服公会的 KOOK 机器人。项目把公会绑定、成员自助绑定、战斗查询、死亡播报、补装审批和市场估值集中到一个轻量 Python 服务里，运行数据使用本地 SQLite 保存。
+面向《Albion Online》欧服公会的 KOOK 机器人。项目把公会绑定、成员自助绑定、战斗查询、死亡播报、补装审批和市场估值集中到一个轻量 Python 服务里，运行数据使用本地 SQLite 保存。
 
 GitHub 仓库：<https://github.com/Fat-Jan/Albion.git>
+
+## 仓库与分支
+
+- 本 README 对应欧服实例分支 `deploy/eu`，本地目录固定为 `/Users/arm/Desktop/vscode/Albion-EU-kook`。
+- 同一远端仓库还维护亚服实例分支 `deploy/asia`，本地目录固定为 `/Users/arm/Desktop/vscode/Albion-ASIA-kook`。
+- `main` 只作为共享上游主线，不直接作为欧服或亚服服务器实例的长期工作分支。
+- 共享功能修复先做成独立提交，分别在 `deploy/eu` 与 `deploy/asia` 之间 `cherry-pick`；不要整分支互 merge，避免区服默认值、`.env.example`、公会名、运行证据和部署记录串区。
+- 欧服分支必须保持 `KOOK_REGION_CODE=eu`、欧服数据源和 `eu-` 频道前缀一致；切区时需要同时切频道前缀、官方 gameinfo、AODP、AlbionBB API、AlbionBB 网页和官方击杀板 server。
 
 详细操作手册见 [使用说明书.md](使用说明书.md)。设计过程见 [KOOK 机器人实现计划.md](KOOK机器人实现计划.md)，数据源说明见 [阿尔比恩数据接口文档.md](阿尔比恩数据接口文档.md)。
 
 ## 项目状态
 
 - 当前通用版本为 `1.0`，单一来源为 `bot/version.py`；机器人在线时 `/ping` 返回 `pong v1.0`。
-- 默认面向亚服：官方战斗数据走 `gameinfo-sgp`，市场数据走 AODP `east`，ZvZ 战报走 albionbb `asia`。
+- 默认面向欧服：官方战斗数据走 `gameinfo-ams`，市场数据走 AODP `europe`，ZvZ 战报走 albionbb `eu`。
+- 区服作用域由 `KOOK_REGION_CODE=eu` 和同区数据源共同决定；本实例只响应 `eu-` 前缀频道里的 `/指令` 和 `@机器人` 自然语言，其他前缀或无前缀频道会静默。
 - 一个 KOOK 服务器绑定一个 Albion 公会；公会、成员、频道、身份组、补装和战报去重状态保存在本地 SQLite。
-- 频道配置保存的是 KOOK 频道 ID，不依赖频道名称。手动改频道名通常不影响机器人；删除频道、重建频道或迁移到新服务器后，需要重新执行对应 `/设置 ...频道 #频道`。
+- 频道配置保存的是 KOOK 频道 ID，但运行时要求频道名保留当前区服前缀。删除频道、重建频道、去掉 `eu-` 前缀或迁移到新服务器后，需要重新执行对应 `/设置 ...频道 #频道` 或初始化命令。
 - 补装金额只计算穿戴装备；背包物品只在详情和总损失里展示，不计入补装。
 - 武器/副手低价参考库覆盖 T4-T8、附魔 `@1`-`@4`、品质 1-5，每 3 天自动刷新。
-- AI 默认关闭；开启后会出现在 `/战报`、`/助手`、`/补装解释`、补装审核卡和自动 ZvZ 战报卡，但仍只做只读摘要和解释。
+- AI 默认关闭；开启后会出现在 `/战报`、`/助手`、`/补装解释`、`@机器人` 自然语言入口、补装审核卡和自动 ZvZ 战报卡，但仍只做只读摘要和解释。
 - ZvZ 战报聚合、专属频道配置、最小本会参战人数阈值、持久去重和自动定时推送代码路径已有离线测试覆盖；开启 AI 后，自动推送卡会附带 AI 摘要。
 - 当前部署实例、活测证据和具体公会相关运维事实只记录在 `STATUS.md` 与 `notepad.md`，不写入通用 README。
 - 项目采用轻量 harness：接手入口见 `AGENTS.md`，短状态见 `STATUS.md`，离线门禁见 `scripts/check.sh`。
@@ -26,12 +35,13 @@ GitHub 仓库：<https://github.com/Fat-Jan/Albion.git>
 - `/绑定公会 <公会名>`：管理员把当前 KOOK 服务器绑定到 Albion 公会。
 - `/设置 会员身份组 @身份组`：配置绑定通过后发放的会员身份组。
 - `/设置 审批频道 #频道`：配置绑定审批和补装审核身份申请频道。
-- `/设置 补装初始化频道`：自动新建 `🛡️补装中心` 分组和四个补装频道，并写入配置。
+- `/设置 运营初始化频道`：自动新建或复用 `eu-📡运营中心` 分组和审批、成员变动、击杀、阵亡、战报频道，并写入配置。
+- `/设置 补装初始化频道`：自动新建或复用 `eu-🛡️补装中心` 分组和四个补装频道，并写入配置。
 - `/设置 播报频道 #频道`：配置旧版统一播报频道，也作为击杀/阵亡频道未单独配置时的兜底。
 - `/设置 击杀播报频道 #频道`：配置我方击杀播报频道。
 - `/设置 阵亡播报频道 #频道`：配置我方阵亡播报频道（也兼容 `/设置 死亡播报频道 #频道`）。
 - `/设置 战报推送频道 #频道`：配置 ZvZ 聚合战报专用频道（也兼容 `/设置 战报频道 #频道`）。
-- `/设置 战报本会最小人数 <人数>`：配置自动战报推送的本会参战人数阈值，默认 20 人。
+- `/设置 战报本会最小人数 <人数>`：配置自动战报推送的本会参战人数阈值，默认 20 人，最低按 20 人生效。
 - `/设置 成员变动频道 #频道`：配置退会复查通知频道。
 - `/设置 可信身份组 @身份组...`：配置可信成员组，满足条件时可快速通过绑定。
 - `/绑定 <角色名> [自定义昵称]`：成员申请绑定 Albion 角色；可选自定义昵称会让 KOOK 昵称同步为 `角色名 - 自定义昵称`，例如 `BEISHENGS - 北笙`。
@@ -39,22 +49,24 @@ GitHub 仓库：<https://github.com/Fat-Jan/Albion.git>
 
 绑定关系仍然是一人一服一条记录；自定义昵称保存在 `player_binding.custom_nickname`，审批中的值保存在 `pending_approval.custom_nickname`，不会新增一条绑定行。绑定待审批卡会显示申请号、待审批状态和目标 KOOK 昵称。审批通过或拒绝后，机器人会把结果卡发到成员变动频道；未配置时兜底审批频道。结果卡包含绑定申请号、申请人、角色、目标 KOOK 昵称和当前状态，并会尽量把原审批卡原地更新为已通过或已拒绝。
 
-频道设置写入的是 KOOK 频道 ID；只改频道名不需要重新配置，删除频道或重建频道后才需要重新 `/设置`。
+频道设置写入的是 KOOK 频道 ID；频道名必须保留 `eu-` 前缀。只改前缀后的说明文字通常不需要重新配置，删除频道、重建频道或去掉 `eu-` 前缀后才需要重新 `/设置`。
 
 ### 查询指令
 
 - `/战绩 [角色名]`：查看角色概况、最近击杀和最近阵亡。
 - `/估值 [角色名]`：估最近一次死亡，拆分装备估值、背包估值和总损失。
-- `/物价 <物品名或 ID>`：查亚服各城当前最低卖单。
+- `/物价 <物品名或 ID>`：查欧服各城当前最低卖单。
 - `/金价`：查最新金价。
 - `/榜单 pvp|pve`：查当前绑定公会成员排行榜。
 - `/战役`：查当前绑定公会最近 ZvZ 战役。
 - `/战报 [日期]`：AI 基于最近战役生成短摘要；带日期时按北京时间 ZvZ 夜间窗口查询，例如 `/战报 6-15` 会统计 `2026-06-15 14:30` 到 `2026-06-16 05:00`。
+- `/出勤 [5-50]`：查看绑定公会最近 N 场符合阈值的战斗参与快照；这是战斗参与参考，不等同正式 CTA 考勤。
 - `/助手 <问题>`：AI 做命令引导和白名单只读查询，可查本人绑定状态、本人最近击杀/阵亡、本人补装进度；管理员/补装审核员可查补装队列概况，管理员可查频道配置概况。
+- `@机器人 <自然语言>`：把自然语言转成白名单内的只读动作，例如 `@机器人 帮我调用战报`、`@机器人 帮我调一下昨晚的战报`、`@机器人 帮我看 6-15 晚上的战役`、`@机器人 查一下 Latano 的战绩`、`@机器人 查金价`、`@机器人 看 pve 榜单`；绑定、解绑、公会绑定、设置、补装申请、审批、发组、撤组、改金额和标记发放不会被转成命令。
 
 ### 补装流程
 
-- `/设置 补装初始化频道`：推荐初始化方式，新建 `🛡️补装中心`、`📥补装申请`、`🔍补装审核`、`💰补装发放`、`📣补装通知`。
+- `/设置 补装初始化频道`：推荐初始化方式，新建或复用 `eu-🛡️补装中心`、`eu-📥补装申请`、`eu-🔍补装审核`、`eu-💰补装发放`、`eu-📣补装通知`。
 - `/设置 补装申请频道|补装审核频道|补装发放频道|补装通知频道 #频道`：手动绑定四个补装频道。
 - `/设置 补装频道 #频道`：旧版单频道兜底；新流程不建议继续复用旧频道。
 - `/设置 补装审核身份组 @身份组...`：配置可审批补装、标记发放的身份组。
@@ -81,19 +93,22 @@ pending（待审批） -> rejected（已拒绝）
 推荐频道结构：
 
 ```text
-补装中心
-├─ 补装申请      成员可见，可发 /补装 /补装状态
-├─ 补装审核      仅补装组/管理可见
-├─ 补装发放      仅补装组/发放组/管理可见
-└─ 补装通知      成员可见，只发完成通知
+eu-🛡️补装中心
+├─ eu-📥补装申请      成员可见，可发 /补装 /补装状态
+├─ eu-🔍补装审核      仅补装组/管理可见
+├─ eu-💰补装发放      仅补装组/发放组/管理可见
+└─ eu-📣补装通知      成员可见，只发完成通知
 ```
 
 ### 自动任务
 
-- 死亡播报：普通时段每 4 分钟轮询全局事件，20:00-00:30 每 90 秒，筛选本会击杀和阵亡；可分别推送到击杀播报和阵亡播报频道。
+- 死亡播报：普通时段每 90 秒轮询全局事件，20:00-00:30 每 60 秒；每轮并发拉取 4 页全局 feed，筛选本会击杀和阵亡，可分别推送到击杀播报和阵亡播报频道。大额固定按击杀/死亡声望大于 100 万，或银币总损失大于 1000 万高亮。
 - 退会复查：每天 04:00 比对 Albion 公会成员，退会则撤 KOOK 会员组、删除绑定，并通知成员变动频道。
 - 价格参考库刷新：每 3 天刷新 T4-T8 主手、双手、副手低价参考。
-- ZvZ 战报推送：北京时间 14:30 到次日 05:00 每 15 分钟检查一次，命中绑定公会且达到本会参战人数阈值后推送专属战报卡；开启 AI 时，卡片会附带只读 AI 摘要。
+- ZvZ 战报推送：默认北京时间 14:30 到次日 05:00 每 3 分钟检查一次，可通过 `DISPLAY_TZ` 和 `BATTLE_REPORT_WINDOW_*` 调整；优先使用官方 `/battles?guildId=` 候选，AlbionBB 仅作补充，命中绑定公会且本会参战人数至少 20 人后推送专属战报卡，更高配置会按更高值生效；开启 AI 时，卡片会附带只读 AI 摘要。
+- 出勤缓存采集：每 5 分钟采集绑定公会近期战斗详情，每天 05:00 采集成员快照；`/出勤` 和只读 API 会优先读取本地 SQLite 缓存，不足时命令侧再实时补拉。
+- 前端数据采集：每 5 分钟缓存绑定公会高声望击杀/阵亡事件，每 12 小时缓存 PvP/PvE/声望榜，每 15 分钟缓存 AODP 金价快照，供只读 dashboard 使用。
+- 只读 Web API：配置 `HEALTH_PORT` 或 `PORT` 后启动内部 HTTP 服务，提供静态 dashboard `/`，以及 `/healthz`、`/api/status`、`/api/invites`、`/api/events/high-fame`、`/api/leaderboards`、`/api/market/gold`、`/api/attendance/recent`；响应不包含 `.env` 密钥原文。
 
 ## 技术栈
 
@@ -103,9 +118,9 @@ pending（待审批） -> rejected（已拒绝）
 | KOOK SDK | khl.py，WebSocket 模式 |
 | HTTP 客户端 | httpx |
 | 存储 | SQLite |
-| 战斗数据 | 官方 `gameinfo-sgp` |
-| 市场数据 | Albion Online Data Project `east` |
-| ZvZ 数据 | albionbb `asia` |
+| 战斗数据 | 官方 `gameinfo-ams` |
+| 市场数据 | Albion Online Data Project `europe` |
+| ZvZ 数据 | albionbb `eu` |
 
 ## 快速开始
 
@@ -126,35 +141,43 @@ cp .env.example .env
 
 ```dotenv
 KOOK_TOKEN=
-GAMEINFO_BASE=https://gameinfo-sgp.albiononline.com/api/gameinfo
-AODP_BASE=https://east.albion-online-data.com
-ALBIONBB_BASE=https://api.albionbb.com/asia
-ALBIONBB_WEB_BASE=https://east.albionbb.com
-KILLBOARD_SERVER=live_sgp
-DISPLAY_TZ=Asia/Shanghai
-DISPLAY_TZ_LABEL=北京时间
-DISPLAY_TZ_SHORT_LABEL=北京
-DB_PATH=data/bot.db
-LOG_LEVEL=INFO
-AI_ENABLED=false
-AI_BASE_URL=https://api.longcat.chat/openai
-AI_MODEL=LongCat-2.0-Preview
-AI_API_KEY=
-LONGCAT_API_KEY=
-AI_TIMEOUT_SEC=20
-AI_MAX_OUTPUT_TOKENS=800
-```
-
-`KOOK_TOKEN` 是必填密钥。启用 AI 时使用 `AI_API_KEY` 或 `LONGCAT_API_KEY`，前者优先。密钥不要提交到 Git。
-
-欧服部署时保持北京时间显示和 `/战报 [日期]` 的北京时间窗口，只把区服数据源改成欧服：
-
-```dotenv
+KOOK_REGION_CODE=eu
 GAMEINFO_BASE=https://gameinfo-ams.albiononline.com/api/gameinfo
 AODP_BASE=https://europe.albion-online-data.com
 ALBIONBB_BASE=https://api.albionbb.com/eu
 ALBIONBB_WEB_BASE=https://europe.albionbb.com
 KILLBOARD_SERVER=live_ams
+DISPLAY_TZ=Asia/Shanghai
+DISPLAY_TZ_LABEL=北京时间
+DISPLAY_TZ_SHORT_LABEL=北京
+BATTLE_REPORT_WINDOW_START=14:30
+BATTLE_REPORT_WINDOW_END=05:00
+KOOK_BOT_MENTION_ALIASES=
+HEALTH_PORT=
+WEB_PUBLIC_BASE_URL=
+KOOK_INVITE_URL_EU=
+KOOK_INVITE_URL_ASIA=
+DB_PATH=data/bot.db
+LOG_LEVEL=INFO
+AI_ENABLED=false
+AI_BASE_URL=https://token.sensenova.cn/v1
+AI_MODEL=deepseek-v4-flash
+AI_API_KEY=
+AI_TIMEOUT_SEC=20
+AI_MAX_OUTPUT_TOKENS=2000
+```
+
+`KOOK_TOKEN` 是必填密钥。`KOOK_REGION_CODE` 决定频道前缀和消息响应作用域，欧服使用 `eu`。启用 AI 时配置 `AI_API_KEY`。`KOOK_BOT_MENTION_ALIASES` 用来配置 `@机器人` 自然语言入口额外可识别的显示名别名，默认留空；多个别名用英文逗号分隔。密钥不要提交到 Git。
+
+默认配置面向欧服。切区时需同时切 `KOOK_REGION_CODE`、官方 gameinfo、AODP、AlbionBB API、AlbionBB 网页和官方击杀板 server，避免频道、市场、战报和链接混区。如需切回亚服：
+
+```dotenv
+KOOK_REGION_CODE=asia
+GAMEINFO_BASE=https://gameinfo-sgp.albiononline.com/api/gameinfo
+AODP_BASE=https://east.albion-online-data.com
+ALBIONBB_BASE=https://api.albionbb.com/asia
+ALBIONBB_WEB_BASE=https://east.albionbb.com
+KILLBOARD_SERVER=live_sgp
 DISPLAY_TZ=Asia/Shanghai
 DISPLAY_TZ_LABEL=北京时间
 DISPLAY_TZ_SHORT_LABEL=北京
@@ -182,15 +205,17 @@ nohup .venv/bin/python -m bot.main > bot.log 2>&1 &
 
 ## 运维命令
 
-同一个 `KOOK_TOKEN` 不能被两个正在运行的 bot 进程同时使用，否则会抢 KOOK WebSocket 连接并可能重复处理消息。调试线上同一个 bot token 前，先停止线上服务：
+当前新加坡服务器按双实例隔离：欧服使用 `/opt/albion-kook-eu` 与 `albion-kook-eu.service`，亚服使用 `/opt/albion-kook-asia` 与 `albion-kook-asia.service`。旧 `/opt/albion-kook` 单服务已归档移除，不要恢复为运行入口。
+
+同一个 `KOOK_TOKEN` 不能被两个正在运行的 bot 进程同时使用，否则会抢 KOOK WebSocket 连接并可能重复处理消息。调试欧服线上同一个 bot token 前，先停止欧服服务：
 
 ```bash
-systemctl stop albion-kook.service
+systemctl stop albion-kook-eu.service
 .venv/bin/python -m bot.main
-systemctl start albion-kook.service
+systemctl start albion-kook-eu.service
 ```
 
-如果本地 `.env` 使用独立开发 bot token，则可以直接启动本地机器人调试，不需要停止线上服务：
+如果本地 `.env` 使用独立开发 bot token，则可以直接启动本地机器人调试，不需要停止其他实例：
 
 ```bash
 .venv/bin/python -m bot.main
@@ -198,13 +223,13 @@ systemctl start albion-kook.service
 
 启动日志会打印安全诊断 `bot_id/token_fp/token_source`，用来确认实际生效 token；不要在日志、提交或汇报中输出 token 原文。
 
-如果用 systemd 托管，可按自己的部署路径创建服务后使用：
+当前欧服线上实例的 systemd 与日志命令：
 
 ```bash
-systemctl status albion-kook.service --no-pager --lines=80
-systemctl restart albion-kook.service
-journalctl -u albion-kook.service -n 100 --no-pager
-tail -80 /var/log/albion-kook/bot.log
+systemctl status albion-kook-eu.service --no-pager --lines=80
+systemctl restart albion-kook-eu.service
+journalctl -u albion-kook-eu.service -n 100 --no-pager
+tail -80 /var/log/albion-kook-eu/bot.log
 ```
 
 查看 bot 进程：
@@ -306,9 +331,9 @@ Inventory 背包物品不计入补装金额。
 
 ## AI 辅助
 
-AI 走 LongCat/OpenAI 兼容接口，默认关闭。开启后可用 `/战报 [日期]`、`/助手 <问题>`、`/补装解释 <申请号>`，并会自动出现在补装审核卡和自动 ZvZ 战报卡里。
+AI 走 SenseNova/OpenAI 兼容接口，默认关闭。开启后可用 `/战报 [日期]`、`/助手 <问题>`、`/补装解释 <申请号>`，也可以在频道里 `@机器人` 输入自然语言让机器人调用白名单内的只读动作，并会自动出现在补装审核卡和自动 ZvZ 战报卡里。
 
-AI 只作为辅助说明层：可以总结战斗记录、解释补装异常、生成新手命令引导、回答白名单只读查询。`/战报` 默认总结最近战役；`/战报 6-15`、`/战报 6月15`、`/战报 2026-06-15` 会按北京时间目标日 14:30 到次日 05:00 的 ZvZ 夜间窗口过滤战役。`/助手` 当前白名单包括本人绑定状态、本人最近击杀/阵亡、本人补装进度、补装队列概况（管理员/补装审核员）和频道配置概况（管理员）。自动 ZvZ 战报摘要只基于战报事实包生成，补装审核提示只基于补装申请和估值事实包生成。
+AI 只作为辅助说明层：可以总结战斗记录、解释补装异常、生成新手命令引导、回答白名单只读查询。`/战报` 默认总结最近战役；`/战报 6-15`、`/战报 6月15`、`/战报 2026-06-15`、自然语言里的“昨晚战报”“昨晚的战役”“6-15 晚上的战役”会按北京时间目标日 14:30 到次日 05:00 的 ZvZ 夜间窗口过滤战役。`@机器人` 当前只会分发到现有只读路径：`/战报`、`/补装解释`、`/战绩`、`/估值`、`/战役`、`/物价`、`/金价`、`/榜单` 或 `/助手` 的只读白名单；显示名别名可通过 `KOOK_BOT_MENTION_ALIASES` 配置。`/助手` 当前白名单包括本人绑定状态、本人最近击杀/阵亡、本人补装进度、补装队列概况（管理员/补装审核员）和频道配置概况（管理员）。自动 ZvZ 战报摘要只基于战报事实包生成，补装审核提示只基于补装申请和估值事实包生成。
 
 所有 AI 查询都只接收结构化事实包，不给模型任意查库或写库能力；输出层会拦截“已批准、已发组、已改金额、已标记发放”等危险动作声明，并对疑似 Token/API Key 文本脱敏。补装金额、绑定权限、审批、发放状态和身份组变更仍由规则、数据库和管理员点击控制。
 

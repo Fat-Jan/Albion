@@ -8,7 +8,7 @@ import logging
 
 from khl import Bot, EventTypes, Message
 
-from bot import perms
+from bot import perms, region_scope
 from bot.albion.gameinfo import GameInfo
 from bot.cards.register_cards import approval_card, binding_result_card
 from bot.commands.kook_message import update_public_message
@@ -39,13 +39,25 @@ def _parse_bind_args(args: tuple[str, ...]) -> tuple[str | None, str | None]:
 
 async def _finalize_bind(
     guild,
-    kook_user_id: str,
-    member_role_id: str,
-    player_id: str,
-    player_name: str,
+    region: str = "eu",
+    kook_user_id: str | None = None,
+    member_role_id: str | None = None,
+    player_id: str | None = None,
+    player_name: str | None = None,
     custom_nickname: str | None = None,
 ) -> list[str]:
     """发身份组 + 改昵称 + 落库。返回告警（部分操作失败但不致命）。"""
+    if region not in {"eu", "asia"}:
+        region, kook_user_id, member_role_id, player_id, player_name, custom_nickname = (
+            "eu",
+            region,
+            kook_user_id,
+            member_role_id,
+            player_id,
+            player_name,
+        )
+    if not all((kook_user_id, member_role_id, player_id, player_name)):
+        raise ValueError("missing bind finalization fields")
     warnings: list[str] = []
     try:
         await guild.grant_role(kook_user_id, member_role_id)
@@ -57,7 +69,7 @@ async def _finalize_bind(
     except Exception as exc:
         log.warning("改昵称失败: %s", exc)
         warnings.append("改昵称失败（检查 bot 是否有修改他人昵称权限、身份组排序）")
-    repo.set_player_binding(kook_user_id, guild.id, player_id, player_name, custom_nickname)
+    repo.set_player_binding(kook_user_id, guild.id, region, player_id, player_name, custom_nickname)
     return warnings
 
 
@@ -70,21 +82,55 @@ def _bind_notify_channel(guild_binding: dict | None) -> str | None:
     )
 
 
-async def _send_bind_notice(b: Bot, guild_binding: dict | None, fallback_channel, payload) -> None:
+async def _fetch_configured_channel(
+    b: Bot,
+    guild_binding: dict | None,
+    channel_id: str,
+    fields: tuple[str, ...],
+    *,
+    region: str,
+):
+    channel = await b.client.fetch_public_channel(channel_id)
+    if not region_scope.configured_channel_matches_region(
+        guild_binding, channel_id, fields, channel, region=region
+    ):
+        log.warning(
+            "跳过非本区绑定配置频道 channel=%s fields=%s name=%s",
+            channel_id,
+            ",".join(fields),
+            getattr(channel, "name", None),
+        )
+        return None
+    return channel
+
+
+async def _send_bind_notice(
+    b: Bot, guild_binding: dict | None, fallback_channel, payload, *, region: str
+) -> None:
     channel_id = _bind_notify_channel(guild_binding)
     if not channel_id:
         await fallback_channel.send(payload)
         return
     try:
-        channel = await b.client.fetch_public_channel(channel_id)
+        channel = await _fetch_configured_channel(
+            b,
+            guild_binding,
+            channel_id,
+            ("member_change_channel_id", "approval_channel_id"),
+            region=region,
+        )
     except Exception as exc:
         log.warning("拉取绑定通知频道失败 channel=%s: %s", channel_id, exc)
         await fallback_channel.send(payload)
         return
+    if not channel:
+        return
     await channel.send(payload)
 
 
-async def _handle_bind_review(b: Bot, act: str, val: dict, guild_id: str, clicker: str, channel) -> None:
+async def _handle_bind_review(
+    b: Bot, act: str, val: dict, guild_id: str, clicker: str, channel, *, region: str = "eu"
+) -> None:
     try:
         guild = await b.client.fetch_guild(guild_id)
         clicker_user = await guild.fetch_user(clicker)
@@ -106,7 +152,10 @@ async def _handle_bind_review(b: Bot, act: str, val: dict, guild_id: str, clicke
         await channel.send(card)
         return
 
-    binding = repo.get_guild_binding(guild_id)
+    pending_region = pending.get("region") or region
+    if pending_region != region:
+        return
+    binding = repo.get_guild_binding(guild_id, region)
     warnings: list[str] = []
     if act == "reject_bind":
         repo.set_pending_status(pending_id, "rejected")
@@ -116,6 +165,7 @@ async def _handle_bind_review(b: Bot, act: str, val: dict, guild_id: str, clicke
             return
         warnings = await _finalize_bind(
             guild,
+            region,
             pending["kook_user_id"],
             binding["member_role_id"],
             pending["albion_player_id"],
@@ -127,12 +177,14 @@ async def _handle_bind_review(b: Bot, act: str, val: dict, guild_id: str, clicke
     pending = repo.get_pending(pending_id) or pending
     card = binding_result_card(pending, warnings=warnings)
     await update_public_message(b.client, pending.get("message_id"), card)
-    await _send_bind_notice(b, binding, channel, card)
+    await _send_bind_notice(b, binding, channel, card, region=region)
 
 
-def register(bot: Bot, gi: GameInfo) -> None:
+def register(bot: Bot, gi: GameInfo, *, region: str = "eu") -> None:
     @bot.command(name="绑定")
     async def bind_cmd(msg: Message, *args):
+        if not region_scope.should_process_message(msg, region=region):
+            return
         name, custom_nickname = _parse_bind_args(args)
         if not name:
             await msg.reply("用法：/绑定 <游戏角色名> [自定义昵称]，例如 /绑定 BEISHENGS 北笙")
@@ -140,7 +192,7 @@ def register(bot: Bot, gi: GameInfo) -> None:
 
         kgid = msg.ctx.guild.id
         kuid = msg.author.id
-        binding = repo.get_guild_binding(kgid)
+        binding = repo.get_guild_binding(kgid, region)
         if not binding:
             await msg.reply("本服还没绑定公会，请管理员先 /绑定公会。")
             return
@@ -148,10 +200,10 @@ def register(bot: Bot, gi: GameInfo) -> None:
             await msg.reply("管理员还没 /设置 会员身份组。")
             return
 
-        if repo.get_player_binding(kuid, kgid):
+        if repo.get_player_binding(kuid, kgid, region):
             await msg.reply("你已绑定角色，如需更换请先 /解绑。")
             return
-        if repo.get_open_pending(kuid, kgid):
+        if repo.get_open_pending(kuid, kgid, region):
             await msg.reply("你有一条绑定申请正在审批中，请耐心等待。")
             return
 
@@ -173,7 +225,7 @@ def register(bot: Bot, gi: GameInfo) -> None:
             )
             return
 
-        dup = repo.get_binding_by_player(kgid, player["Id"])
+        dup = repo.get_binding_by_player(kgid, region, player["Id"])
         if dup:
             await msg.reply("该角色已被本服其他成员绑定，如有异议请联系管理员。")
             return
@@ -185,6 +237,7 @@ def register(bot: Bot, gi: GameInfo) -> None:
         if trusted and (trusted & user_roles):
             warnings = await _finalize_bind(
                 msg.ctx.guild,
+                region,
                 kuid,
                 binding["member_role_id"],
                 player["Id"],
@@ -202,9 +255,17 @@ def register(bot: Bot, gi: GameInfo) -> None:
         if not binding.get("approval_channel_id"):
             await msg.reply("管理员还没 /设置 审批频道，暂时无法提交审批。")
             return
-        pending_id = repo.create_pending(kgid, kuid, player["Id"], player["Name"], custom_nickname)
+        pending_id = repo.create_pending(kgid, region, kuid, player["Id"], player["Name"], custom_nickname)
         try:
-            channel = await bot.client.fetch_public_channel(binding["approval_channel_id"])
+            channel = await _fetch_configured_channel(
+                bot,
+                binding,
+                binding["approval_channel_id"],
+                ("approval_channel_id",),
+                region=region,
+            )
+            if not channel:
+                raise ValueError("approval channel is outside current region scope")
             sent = await channel.send(approval_card(pending_id, kuid, player, custom_nickname))
             msg_id = sent.get("msg_id") if isinstance(sent, dict) else None
             if msg_id:
@@ -218,13 +279,15 @@ def register(bot: Bot, gi: GameInfo) -> None:
 
     @bot.command(name="解绑")
     async def unbind_cmd(msg: Message, *args):
+        if not region_scope.should_process_message(msg, region=region):
+            return
         kgid = msg.ctx.guild.id
         kuid = msg.author.id
-        removed = repo.delete_player_binding(kuid, kgid)
+        removed = repo.delete_player_binding(kuid, kgid, region)
         if not removed:
             await msg.reply("你当前没有绑定角色。")
             return
-        binding = repo.get_guild_binding(kgid)
+        binding = repo.get_guild_binding(kgid, region)
         if binding and binding.get("member_role_id"):
             try:
                 await msg.ctx.guild.revoke_role(kuid, binding["member_role_id"])
@@ -252,4 +315,12 @@ def register(bot: Bot, gi: GameInfo) -> None:
         except Exception as exc:
             log.warning("拉取审批频道失败: %s", exc)
             return
-        await _handle_bind_review(b, act, val, guild_id, clicker, channel)
+        binding = repo.get_guild_binding(guild_id, region)
+        if not (
+            region_scope.channel_matches_region(channel, region=region)
+            or region_scope.configured_channel_matches_region(
+                binding, channel_id, ("approval_channel_id",), channel, region=region
+            )
+        ):
+            return
+        await _handle_bind_review(b, act, val, guild_id, clicker, channel, region=region)
